@@ -10,7 +10,7 @@ import connectPg from "connect-pg-simple";
 import bcrypt from "bcrypt";
 import PDFDocument from "pdfkit";
 import * as ExcelJS from "exceljs";
-import createCsvWriter from "csv-writer";
+import { createObjectCsvWriter } from "csv-writer";
 import fs from "fs-extra";
 import path from "path";
 
@@ -278,51 +278,50 @@ export class DatabaseStorage implements IStorage {
     firstOfMonth.setHours(0, 0, 0, 0);
 
     // Total de prospectos
-    let totalQuery = db.select({ count: count() }).from(prospectos);
-    if (baseCondition) {
-      totalQuery = totalQuery.where(baseCondition);
-    }
-    const totalResult = await totalQuery;
+    const totalResult = baseCondition 
+      ? await db.select({ count: count() }).from(prospectos).where(baseCondition)
+      : await db.select({ count: count() }).from(prospectos);
     const total = totalResult[0]?.count || 0;
 
     // Prospectos por estatus
-    let estatusQuery = db.select({
-      estatus: prospectos.estatus,
-      count: count()
-    }).from(prospectos);
-    if (baseCondition) {
-      estatusQuery = estatusQuery.where(baseCondition);
-    }
-    const porEstatus = await estatusQuery.groupBy(prospectos.estatus);
+    const porEstatus = baseCondition 
+      ? await db.select({
+          estatus: prospectos.estatus,
+          count: count()
+        }).from(prospectos).where(baseCondition).groupBy(prospectos.estatus)
+      : await db.select({
+          estatus: prospectos.estatus,
+          count: count()
+        }).from(prospectos).groupBy(prospectos.estatus);
 
     // Prospectos por origen
-    let origenQuery = db.select({
-      origen: prospectos.origen,
-      count: count()
-    }).from(prospectos);
-    if (baseCondition) {
-      origenQuery = origenQuery.where(baseCondition);
-    }
-    const porOrigen = await origenQuery.groupBy(prospectos.origen);
+    const porOrigen = baseCondition 
+      ? await db.select({
+          origen: prospectos.origen,
+          count: count()
+        }).from(prospectos).where(baseCondition).groupBy(prospectos.origen)
+      : await db.select({
+          origen: prospectos.origen,
+          count: count()
+        }).from(prospectos).groupBy(prospectos.origen);
 
     // Prospectos por prioridad
-    let prioridadQuery = db.select({
-      prioridad: prospectos.prioridad,
-      count: count()
-    }).from(prospectos);
-    if (baseCondition) {
-      prioridadQuery = prioridadQuery.where(baseCondition);
-    }
-    const porPrioridad = await prioridadQuery.groupBy(prospectos.prioridad);
+    const porPrioridad = baseCondition 
+      ? await db.select({
+          prioridad: prospectos.prioridad,
+          count: count()
+        }).from(prospectos).where(baseCondition).groupBy(prospectos.prioridad)
+      : await db.select({
+          prioridad: prospectos.prioridad,
+          count: count()
+        }).from(prospectos).groupBy(prospectos.prioridad);
 
     // Prospectos del mes actual
-    let mesQuery = db.select({ count: count() }).from(prospectos);
     const mesConditions = [sql`${prospectos.fechaRegistro} >= ${firstOfMonth}`];
     if (baseCondition) {
       mesConditions.push(baseCondition);
     }
-    mesQuery = mesQuery.where(and(...mesConditions));
-    const mesResult = await mesQuery;
+    const mesResult = await db.select({ count: count() }).from(prospectos).where(and(...mesConditions));
     const prospectosMes = mesResult[0]?.count || 0;
 
     return {
@@ -447,41 +446,41 @@ export class DatabaseStorage implements IStorage {
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
     // Total de comunicaciones
-    let totalQuery = db.select({ count: count() }).from(comunicaciones);
-    if (whereClause) {
-      totalQuery = totalQuery.where(whereClause);
-    }
-    const totalResult = await totalQuery;
+    const totalResult = whereClause 
+      ? await db.select({ count: count() }).from(comunicaciones).where(whereClause)
+      : await db.select({ count: count() }).from(comunicaciones);
     const total = totalResult[0]?.count || 0;
 
     // Comunicaciones por tipo
-    let tipoQuery = db.select({
-      tipo: comunicaciones.tipo,
-      count: count()
-    }).from(comunicaciones);
-    if (whereClause) {
-      tipoQuery = tipoQuery.where(whereClause);
-    }
-    const porTipo = await tipoQuery.groupBy(comunicaciones.tipo);
+    const porTipo = whereClause 
+      ? await db.select({
+          tipo: comunicaciones.tipo,
+          count: count()
+        }).from(comunicaciones).where(whereClause).groupBy(comunicaciones.tipo)
+      : await db.select({
+          tipo: comunicaciones.tipo,
+          count: count()
+        }).from(comunicaciones).groupBy(comunicaciones.tipo);
 
     // Comunicaciones por resultado
-    let resultadoQuery = db.select({
-      resultado: comunicaciones.resultado,
-      count: count()
-    }).from(comunicaciones);
-    if (whereClause) {
-      resultadoQuery = resultadoQuery.where(whereClause);
-    }
-    const porResultado = await resultadoQuery.groupBy(comunicaciones.resultado);
+    const porResultado = whereClause 
+      ? await db.select({
+          resultado: comunicaciones.resultado,
+          count: count()
+        }).from(comunicaciones).where(whereClause).groupBy(comunicaciones.resultado)
+      : await db.select({
+          resultado: comunicaciones.resultado,
+          count: count()
+        }).from(comunicaciones).groupBy(comunicaciones.resultado);
 
     // Duración promedio
-    let duracionQuery = db.select({
-      promedio: avg(comunicaciones.duracion)
-    }).from(comunicaciones).where(sql`${comunicaciones.duracion} IS NOT NULL`);
-    if (whereClause) {
-      duracionQuery = duracionQuery.where(and(whereClause, sql`${comunicaciones.duracion} IS NOT NULL`));
-    }
-    const duracionResult = await duracionQuery;
+    const duracionResult = whereClause 
+      ? await db.select({
+          promedio: avg(comunicaciones.duracion)
+        }).from(comunicaciones).where(and(whereClause, sql`${comunicaciones.duracion} IS NOT NULL`))
+      : await db.select({
+          promedio: avg(comunicaciones.duracion)
+        }).from(comunicaciones).where(sql`${comunicaciones.duracion} IS NOT NULL`);
     const duracionPromedio = Number(duracionResult[0]?.promedio) || 0;
 
     // Comunicaciones de la semana pasada
@@ -489,13 +488,11 @@ export class DatabaseStorage implements IStorage {
     weekAgo.setDate(weekAgo.getDate() - 7);
     weekAgo.setHours(0, 0, 0, 0);
     
-    let semanaQuery = db.select({ count: count() }).from(comunicaciones);
     const semanaConditions = [sql`${comunicaciones.fechaHora} >= ${weekAgo}`];
     if (asesorId) {
       semanaConditions.push(eq(comunicaciones.usuarioId, asesorId));
     }
-    semanaQuery = semanaQuery.where(and(...semanaConditions));
-    const semanaResult = await semanaQuery;
+    const semanaResult = await db.select({ count: count() }).from(comunicaciones).where(and(...semanaConditions));
     const comunicacionesSemana = semanaResult[0]?.count || 0;
 
     return {
@@ -642,41 +639,37 @@ export class DatabaseStorage implements IStorage {
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
     // Total campañas
-    let totalQuery = db.select({ count: count() }).from(campanas);
-    if (whereClause) {
-      totalQuery = totalQuery.where(whereClause);
-    }
-    const totalResult = await totalQuery;
+    const totalResult = whereClause 
+      ? await db.select({ count: count() }).from(campanas).where(whereClause)
+      : await db.select({ count: count() }).from(campanas);
     const totalCampanas = totalResult[0]?.count || 0;
 
     // Campañas activas
-    let activasQuery = db.select({ count: count() }).from(campanas);
     const activasConditions = [eq(campanas.estado, "activa")];
     if (whereClause) {
       activasConditions.push(whereClause);
     }
-    activasQuery = activasQuery.where(and(...activasConditions));
-    const activasResult = await activasQuery;
+    const activasResult = await db.select({ count: count() }).from(campanas).where(and(...activasConditions));
     const campanasActivas = activasResult[0]?.count || 0;
 
     // Presupuesto total
-    let presupuestoQuery = db.select({ 
-      sum: sql<string>`COALESCE(SUM(CAST(${campanas.presupuesto} AS DECIMAL)), 0)` 
-    }).from(campanas);
-    if (whereClause) {
-      presupuestoQuery = presupuestoQuery.where(whereClause);
-    }
-    const presupuestoResult = await presupuestoQuery;
+    const presupuestoResult = whereClause 
+      ? await db.select({ 
+          sum: sql<string>`COALESCE(SUM(CAST(${campanas.presupuesto} AS DECIMAL)), 0)` 
+        }).from(campanas).where(whereClause)
+      : await db.select({ 
+          sum: sql<string>`COALESCE(SUM(CAST(${campanas.presupuesto} AS DECIMAL)), 0)` 
+        }).from(campanas);
     const presupuestoTotal = Number(presupuestoResult[0]?.sum) || 0;
 
     // Gastado total
-    let gastadoQuery = db.select({ 
-      sum: sql<string>`COALESCE(SUM(CAST(${campanas.gastado} AS DECIMAL)), 0)` 
-    }).from(campanas);
-    if (whereClause) {
-      gastadoQuery = gastadoQuery.where(whereClause);
-    }
-    const gastadoResult = await gastadoQuery;
+    const gastadoResult = whereClause 
+      ? await db.select({ 
+          sum: sql<string>`COALESCE(SUM(CAST(${campanas.gastado} AS DECIMAL)), 0)` 
+        }).from(campanas).where(whereClause)
+      : await db.select({ 
+          sum: sql<string>`COALESCE(SUM(CAST(${campanas.gastado} AS DECIMAL)), 0)` 
+        }).from(campanas);
     const gastadoTotal = Number(gastadoResult[0]?.sum) || 0;
 
     // ROI calculado con ingresos reales de inscripciones
@@ -702,16 +695,19 @@ export class DatabaseStorage implements IStorage {
     const roi = gastadoTotal > 0 ? ((ingresosTotal - gastadoTotal) / gastadoTotal) * 100 : 0;
 
     // Campañas por canal
-    let canalQuery = db.select({
-      canal: campanas.canal,
-      count: count(),
-      presupuesto: sql<string>`COALESCE(SUM(CAST(${campanas.presupuesto} AS DECIMAL)), 0)`,
-      gastado: sql<string>`COALESCE(SUM(CAST(${campanas.gastado} AS DECIMAL)), 0)`
-    }).from(campanas);
-    if (whereClause) {
-      canalQuery = canalQuery.where(whereClause);
-    }
-    const porCanal = await canalQuery.groupBy(campanas.canal);
+    const porCanal = whereClause 
+      ? await db.select({
+          canal: campanas.canal,
+          count: count(),
+          presupuesto: sql<string>`COALESCE(SUM(CAST(${campanas.presupuesto} AS DECIMAL)), 0)`,
+          gastado: sql<string>`COALESCE(SUM(CAST(${campanas.gastado} AS DECIMAL)), 0)`
+        }).from(campanas).where(whereClause).groupBy(campanas.canal)
+      : await db.select({
+          canal: campanas.canal,
+          count: count(),
+          presupuesto: sql<string>`COALESCE(SUM(CAST(${campanas.presupuesto} AS DECIMAL)), 0)`,
+          gastado: sql<string>`COALESCE(SUM(CAST(${campanas.gastado} AS DECIMAL)), 0)`
+        }).from(campanas).groupBy(campanas.canal);
 
     return {
       totalCampanas: Number(totalCampanas),
@@ -754,7 +750,7 @@ export class DatabaseStorage implements IStorage {
       .from(prospectosCampanas)
       .where(eq(prospectosCampanas.campanaId, campanaId));
 
-    const prospectos = Number(prospectosResult.count);
+    const prospectosCount = Number(prospectosResult.count);
 
     // Contar inscripciones (prospectos con estatus inscrito)
     const inscripcionesResult = await db
@@ -787,12 +783,12 @@ export class DatabaseStorage implements IStorage {
     const ingresos = Number(ingresosResult[0]?.ingresos) || 0;
 
     // Calcular métricas
-    const tasaConversion = prospectos > 0 ? (inscripciones / prospectos) * 100 : 0;
-    const costoProspecto = prospectos > 0 ? gastado / prospectos : 0;
+    const tasaConversion = prospectosCount > 0 ? (inscripciones / prospectosCount) * 100 : 0;
+    const costoProspecto = prospectosCount > 0 ? gastado / prospectosCount : 0;
     const roi = gastado > 0 ? ((ingresos - gastado) / gastado) * 100 : 0;
 
     return {
-      prospectos,
+      prospectos: prospectosCount,
       inscripciones,
       tasaConversion,
       costoProspecto,
@@ -1394,7 +1390,7 @@ export class DatabaseStorage implements IStorage {
       const records = datos.asesores || datos.detalleCampanas || [];
       if (records.length > 0) {
         const headers = Object.keys(records[0]).map(key => ({ id: key, title: key.toUpperCase() }));
-        const csvWriter = createCsvWriter.createObjectCsvWriter({
+        const csvWriter = createObjectCsvWriter({
           path: filePath,
           header: headers
         });
@@ -1551,6 +1547,130 @@ export class DatabaseStorage implements IStorage {
     // Para objetos simples
     const entries = Object.entries(obj);
     return entries.map(([key, value]) => `"${key}","${value}"`).join('\n');
+  }
+
+  // Método faltante: getTituloReporte
+  private getTituloReporte(tipoReporte: string): string {
+    switch (tipoReporte) {
+      case 'ejecutivo':
+        return 'Reporte Ejecutivo';
+      case 'asesores':
+        return 'Reporte de Performance de Asesores';
+      case 'campanas':
+        return 'Reporte de Campañas';
+      case 'conversiones':
+        return 'Reporte de Conversiones';
+      default:
+        return 'Reporte Personalizado';
+    }
+  }
+
+  // Método faltante: escribirReporteEjecutivoPDF
+  private escribirReporteEjecutivoPDF(doc: any, datos: any): void {
+    if (datos.resumenGeneral) {
+      const resumen = datos.resumenGeneral;
+      
+      doc.fontSize(14).text('Resumen Ejecutivo', { underline: true });
+      doc.moveDown();
+      
+      doc.fontSize(12);
+      doc.text(`Total de Prospectos: ${resumen.totalProspectos || 0}`);
+      doc.text(`Total Inscritos: ${resumen.totalInscritos || 0}`);
+      doc.text(`Tasa de Conversión: ${(resumen.tasaConversion || 0).toFixed(2)}%`);
+      doc.text(`Costo Promedio: $${(resumen.costoPromedio || 0).toFixed(2)}`);
+      
+      if (resumen.prospectosPeriodo !== undefined) {
+        doc.text(`Prospectos del Período: ${resumen.prospectosPeriodo}`);
+      }
+      if (resumen.inscritosPeriodo !== undefined) {
+        doc.text(`Inscritos del Período: ${resumen.inscritosPeriodo}`);
+      }
+      if (resumen.gastoCampanas !== undefined) {
+        doc.text(`Gasto en Campañas: $${resumen.gastoCampanas.toFixed(2)}`);
+      }
+      
+      doc.moveDown();
+    }
+    
+    if (datos.origenesData && Array.isArray(datos.origenesData)) {
+      doc.fontSize(14).text('Prospectos por Origen', { underline: true });
+      doc.moveDown();
+      doc.fontSize(12);
+      
+      datos.origenesData.forEach((origen: any) => {
+        doc.text(`${origen.origen}: ${origen.count} prospectos`);
+      });
+      doc.moveDown();
+    }
+  }
+
+  // Método faltante: escribirReporteAsesoresPDF
+  private escribirReporteAsesoresPDF(doc: any, datos: any): void {
+    if (datos.asesores && Array.isArray(datos.asesores)) {
+      doc.fontSize(14).text('Performance de Asesores', { underline: true });
+      doc.moveDown();
+      doc.fontSize(12);
+      
+      datos.asesores.forEach((asesor: any) => {
+        doc.text(`Asesor: ${asesor.nombre}`);
+        doc.text(`  Email: ${asesor.email}`);
+        doc.text(`  Prospectos: ${asesor.prospectos}`);
+        doc.text(`  Inscritos: ${asesor.inscritos}`);
+        doc.text(`  Tasa Conversión: ${(asesor.tasaConversion || 0).toFixed(2)}%`);
+        doc.text(`  Comunicaciones: ${asesor.comunicaciones}`);
+        doc.moveDown(0.5);
+      });
+    }
+    
+    if (datos.resumen) {
+      doc.fontSize(14).text('Resumen', { underline: true });
+      doc.moveDown();
+      doc.fontSize(12);
+      
+      doc.text(`Total Asesores: ${datos.resumen.totalAsesores}`);
+      doc.text(`Promedio Conversión: ${(datos.resumen.promedioConversion || 0).toFixed(2)}%`);
+      
+      if (datos.resumen.mejorAsesor) {
+        doc.text(`Mejor Asesor: ${datos.resumen.mejorAsesor.nombre} (${(datos.resumen.mejorAsesor.tasaConversion || 0).toFixed(2)}%)`);
+      }
+    }
+  }
+
+  // Método faltante: escribirReporteCampanasPDF
+  private escribirReporteCampanasPDF(doc: any, datos: any): void {
+    if (datos.resumenGeneral) {
+      const resumen = datos.resumenGeneral;
+      
+      doc.fontSize(14).text('Resumen de Campañas', { underline: true });
+      doc.moveDown();
+      doc.fontSize(12);
+      
+      doc.text(`Total Campañas: ${resumen.totalCampanas || 0}`);
+      doc.text(`Campañas Activas: ${resumen.campanasActivas || 0}`);
+      doc.text(`Presupuesto Total: $${(resumen.presupuestoTotal || 0).toFixed(2)}`);
+      doc.text(`Gastado Total: $${(resumen.gastadoTotal || 0).toFixed(2)}`);
+      doc.text(`ROI: ${(resumen.roi || 0).toFixed(2)}%`);
+      doc.moveDown();
+    }
+    
+    if (datos.detalleCampanas && Array.isArray(datos.detalleCampanas)) {
+      doc.fontSize(14).text('Detalle de Campañas', { underline: true });
+      doc.moveDown();
+      doc.fontSize(12);
+      
+      datos.detalleCampanas.forEach((campana: any) => {
+        doc.text(`Campaña: ${campana.nombre}`);
+        doc.text(`  Canal: ${campana.canal}`);
+        doc.text(`  Estado: ${campana.estado}`);
+        doc.text(`  Presupuesto: $${Number(campana.presupuesto || 0).toFixed(2)}`);
+        doc.text(`  Gastado: $${Number(campana.gastado || 0).toFixed(2)}`);
+        doc.text(`  Prospectos: ${campana.prospectos}`);
+        doc.text(`  Inscritos: ${campana.inscritos}`);
+        doc.text(`  Tasa Conversión: ${(campana.tasaConversion || 0).toFixed(2)}%`);
+        doc.text(`  ROI: ${(campana.roi || 0).toFixed(2)}%`);
+        doc.moveDown(0.5);
+      });
+    }
   }
 }
 
