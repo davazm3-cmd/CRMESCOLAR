@@ -190,7 +190,7 @@ export default function FormulariosPublicosManager() {
   };
 
   // Filtrar formularios por nivel educativo
-  const filteredFormularios = selectedNivel 
+  const filteredFormularios = (selectedNivel && selectedNivel !== "todos") 
     ? formularios.filter((f: FormularioPublico) => f.nivelEducativo === selectedNivel)
     : formularios;
 
@@ -247,7 +247,7 @@ export default function FormulariosPublicosManager() {
                 <SelectValue placeholder="Todos los niveles" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Todos los niveles</SelectItem>
+                <SelectItem value="todos">Todos los niveles</SelectItem>
                 <SelectItem value="primaria">Primaria</SelectItem>
                 <SelectItem value="secundaria">Secundaria</SelectItem>
                 <SelectItem value="preparatoria">Preparatoria</SelectItem>

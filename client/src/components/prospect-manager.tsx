@@ -21,88 +21,14 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { ProspectKanban } from "./prospect-kanban";
-
-//todo: remove mock data functionality
-const allProspects = [
-  {
-    id: "1",
-    nombre: "Ana Patricia Jiménez",
-    telefono: "+52 55 1234-5678",
-    email: "ana.jimenez@email.com",
-    nivelEducativo: "Preparatoria",
-    origen: "Facebook Ads",
-    estatus: "cita_agendada",
-    asesor: "María García",
-    asesorId: "maria_garcia",
-    prioridad: "alta",
-    fechaRegistro: "2024-01-10",
-    ultimaInteraccion: "2024-01-14",
-    notas: "Interesada en programa de preparatoria en línea"
-  },
-  {
-    id: "2",
-    nombre: "Carlos Eduardo Mendoza",
-    telefono: "+52 55 9876-5432",
-    email: "carlos.mendoza@email.com",
-    nivelEducativo: "Universidad",
-    origen: "Google Ads",
-    estatus: "primer_contacto",
-    asesor: "Carlos López",
-    asesorId: "carlos_lopez",
-    prioridad: "media",
-    fechaRegistro: "2024-01-11",
-    ultimaInteraccion: "2024-01-13",
-    notas: "Busca programa de ingeniería"
-  },
-  {
-    id: "3",
-    nombre: "María Elena Vásquez",
-    telefono: "+52 55 5555-1111",
-    email: "maria.vasquez@email.com",
-    nivelEducativo: "Secundaria",
-    origen: "Referencias",
-    estatus: "nuevo",
-    asesor: "Ana Martínez",
-    asesorId: "ana_martinez",
-    prioridad: "baja",
-    fechaRegistro: "2024-01-12",
-    ultimaInteraccion: "2024-01-12",
-    notas: "Referida por cliente actual"
-  },
-  {
-    id: "4",
-    nombre: "Roberto Silva Morales",
-    telefono: "+52 55 7777-8888",
-    email: "roberto.silva@email.com",
-    nivelEducativo: "Universidad",
-    origen: "Redes Sociales",
-    estatus: "matriculado",
-    asesor: "Luis Rodríguez",
-    asesorId: "luis_rodriguez",
-    prioridad: "alta",
-    fechaRegistro: "2024-01-05",
-    ultimaInteraccion: "2024-01-14",
-    notas: "Matriculado en programa de administración"
-  },
-  {
-    id: "5",
-    nombre: "Sofía Hernández López",
-    telefono: "+52 55 3333-2222",
-    email: "sofia.hernandez@email.com",
-    nivelEducativo: "Preparatoria",
-    origen: "Eventos",
-    estatus: "documentos",
-    asesor: "María García",
-    asesorId: "maria_garcia",
-    prioridad: "media",
-    fechaRegistro: "2024-01-08",
-    ultimaInteraccion: "2024-01-10",
-    notas: "En proceso de documentación"
-  }
-];
+import type { Prospecto } from "@shared/schema";
 
 export function ProspectManager() {
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("Todos");
   const [selectedProspects, setSelectedProspects] = useState<string[]>([]);
@@ -120,6 +46,12 @@ export function ProspectManager() {
     "admitido": "Admitido",
     "matriculado": "Matriculado"
   } as const;
+
+  // Query para obtener prospectos reales
+  const { data: allProspects = [], isLoading, error } = useQuery<Prospecto[]>({
+    queryKey: ["/api/prospectos"],
+    staleTime: 30000
+  });
 
   const filteredProspects = allProspects.filter(prospect => {
     const matchesSearch = prospect.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -304,12 +236,25 @@ export function ProspectManager() {
         <Card>
           <CardHeader>
             <CardTitle>
-              Prospectos ({filteredProspects.length})
+              Prospectos ({isLoading ? '...' : filteredProspects.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {filteredProspects.map((prospect) => (
+            {isLoading ? (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">Cargando prospectos...</p>
+              </div>
+            ) : error ? (
+              <div className="text-center py-8">
+                <p className="text-destructive">Error al cargar prospectos</p>
+              </div>
+            ) : filteredProspects.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">No hay prospectos que coincidan con los filtros</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filteredProspects.map((prospect) => (
                 <div 
                   key={prospect.id} 
                   className={`p-4 border rounded-lg hover-elevate ${
@@ -361,11 +306,11 @@ export function ProspectManager() {
                         <div>
                           <p className="flex items-center gap-2">
                             <UserCheck className="h-3 w-3" />
-                            Asesor: {prospect.asesor}
+                            Asesor: {prospect.asesorId || 'Sin asignar'}
                           </p>
                           <p className="flex items-center gap-2">
                             <Calendar className="h-3 w-3" />
-                            Registro: {prospect.fechaRegistro}
+                            Registro: {prospect.fechaRegistro ? new Date(prospect.fechaRegistro).toLocaleDateString() : 'N/A'}
                           </p>
                         </div>
                       </div>
@@ -415,7 +360,8 @@ export function ProspectManager() {
                   </div>
                 </div>
               ))}
-            </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       ) : (
