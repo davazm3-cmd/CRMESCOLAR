@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireRole } from "./auth";
+import { insertComunicacionSchema, updateComunicacionSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Configurar autenticación (basado en blueprint:javascript_auth_all_persistance)
@@ -238,16 +239,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Rutas de comunicaciones
   app.get("/api/comunicaciones", requireAuth, async (req, res) => {
     try {
-      const { prospectoId } = req.query;
+      const { prospectoId, asesorId, tipo, fechaDesde, fechaHasta } = req.query;
       
+      // Si se especifica un prospecto, obtener sus comunicaciones
       if (prospectoId) {
+        // Verificar acceso al prospecto
+        const prospecto = await storage.getProspecto(prospectoId as string);
+        if (!prospecto) {
+          return res.status(404).json({ error: "Prospecto no encontrado" });
+        }
+        
+        // Asesores solo pueden ver comunicaciones de sus prospectos
+        if (req.user?.rol === "asesor" && prospecto.asesorId !== req.user.id) {
+          return res.status(403).json({ error: "Acceso denegado" });
+        }
+        
         const comunicaciones = await storage.getComunicacionesByProspecto(prospectoId as string);
         res.json(comunicaciones);
-      } else if (req.user?.rol === "asesor") {
+      } 
+      // Si es asesor sin filtros, ver solo sus comunicaciones
+      else if (req.user?.rol === "asesor") {
         const comunicaciones = await storage.getComunicacionesByAsesor(req.user.id);
         res.json(comunicaciones);
+      } 
+      // Gerentes y directores pueden ver todas las comunicaciones con filtros
+      else if (["gerente", "director"].includes(req.user!.rol)) {
+        const comunicaciones = await storage.getComunicacionesConFiltros({
+          asesorId: asesorId as string,
+          tipo: tipo as string,
+          fechaDesde: fechaDesde as string,
+          fechaHasta: fechaHasta as string
+        });
+        res.json(comunicaciones);
       } else {
-        res.status(400).json({ error: "ID de prospecto requerido" });
+        res.status(400).json({ error: "Parámetros insuficientes" });
       }
     } catch (error) {
       console.error("Error getting communications:", error);
@@ -257,23 +282,154 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/comunicaciones", requireAuth, async (req, res) => {
     try {
-      const { prospectoId, tipo, contenido } = req.body;
+      // Validar datos con Zod
+      const validationResult = insertComunicacionSchema.safeParse({
+        ...req.body,
+        usuarioId: req.user!.id // Agregar usuario del token
+      });
       
-      if (!prospectoId || !tipo || !contenido) {
-        return res.status(400).json({ error: "ProspectoId, tipo y contenido son requeridos" });
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Datos inválidos", 
+          details: validationResult.error.issues 
+        });
+      }
+      
+      const { prospectoId, tipo, contenido, resultado, duracion, direccion, estado } = validationResult.data;
+
+      // Verificar que el prospecto existe y el asesor puede acceder
+      const prospecto = await storage.getProspecto(prospectoId);
+      if (!prospecto) {
+        return res.status(404).json({ error: "Prospecto no encontrado" });
+      }
+
+      // Solo asesores pueden comunicarse con sus prospectos asignados
+      if (req.user?.rol === "asesor" && prospecto.asesorId !== req.user.id) {
+        return res.status(403).json({ error: "No tienes permiso para comunicarte con este prospecto" });
       }
 
       const comunicacion = await storage.createComunicacion({
         prospectoId,
         usuarioId: req.user!.id,
         tipo,
-        direccion: "enviado",
-        contenido
+        direccion: direccion || "enviado",
+        contenido,
+        resultado: resultado || null,
+        duracion: duracion || null,
+        estado: estado || "completado"
       });
       
       res.status(201).json(comunicacion);
     } catch (error) {
       console.error("Error creating communication:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Actualizar comunicación
+  app.put("/api/comunicaciones/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Validar datos con Zod
+      const validationResult = updateComunicacionSchema.safeParse(req.body);
+      
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Datos inválidos", 
+          details: validationResult.error.issues 
+        });
+      }
+
+      const comunicacionExistente = await storage.getComunicacion(id);
+      if (!comunicacionExistente) {
+        return res.status(404).json({ error: "Comunicación no encontrada" });
+      }
+
+      // Solo el usuario que creó la comunicación puede actualizarla
+      if (comunicacionExistente.usuarioId !== req.user!.id) {
+        return res.status(403).json({ error: "No tienes permiso para actualizar esta comunicación" });
+      }
+
+      const comunicacionActualizada = await storage.updateComunicacion(id, validationResult.data);
+      res.json(comunicacionActualizada);
+    } catch (error) {
+      console.error("Error updating communication:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Obtener comunicación específica
+  app.get("/api/comunicaciones/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const comunicacion = await storage.getComunicacion(id);
+
+      if (!comunicacion) {
+        return res.status(404).json({ error: "Comunicación no encontrada" });
+      }
+
+      // Verificar acceso - asesores solo pueden ver comunicaciones de sus prospectos
+      if (req.user?.rol === "asesor") {
+        const prospecto = await storage.getProspecto(comunicacion.prospectoId);
+        if (!prospecto || prospecto.asesorId !== req.user.id) {
+          return res.status(403).json({ error: "Acceso denegado" });
+        }
+      }
+
+      res.json(comunicacion);
+    } catch (error) {
+      console.error("Error getting communication:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Eliminar comunicación
+  app.delete("/api/comunicaciones/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const comunicacionExistente = await storage.getComunicacion(id);
+      if (!comunicacionExistente) {
+        return res.status(404).json({ error: "Comunicación no encontrada" });
+      }
+
+      // Verificar autorización: el creador, gerentes o directores pueden eliminar
+      const isCreator = comunicacionExistente.usuarioId === req.user!.id;
+      const isManagerOrDirector = ["gerente", "director"].includes(req.user!.rol);
+      
+      if (!isCreator && !isManagerOrDirector) {
+        return res.status(403).json({ error: "No tienes permiso para eliminar esta comunicación" });
+      }
+
+      const eliminado = await storage.deleteComunicacion(id);
+      if (eliminado) {
+        res.json({ message: "Comunicación eliminada exitosamente" });
+      } else {
+        res.status(500).json({ error: "No se pudo eliminar la comunicación" });
+      }
+    } catch (error) {
+      console.error("Error deleting communication:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Estadísticas de comunicaciones
+  app.get("/api/comunicaciones/stats", requireAuth, async (req, res) => {
+    try {
+      const { asesorId, fechaDesde, fechaHasta } = req.query;
+      
+      // Si es asesor, solo puede ver sus estadísticas
+      const filtroAsesor = req.user?.rol === "asesor" ? req.user.id : asesorId as string;
+      
+      const stats = await storage.getComunicacionesStats(
+        filtroAsesor, 
+        fechaDesde as string, 
+        fechaHasta as string
+      );
+      res.json(stats);
+    } catch (error) {
+      console.error("Error getting communication stats:", error);
       res.status(500).json({ error: "Error interno del servidor" });
     }
   });

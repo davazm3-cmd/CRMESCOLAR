@@ -143,6 +143,38 @@ export const insertProspectoSchema = createInsertSchema(prospectos).omit({
 export const insertComunicacionSchema = createInsertSchema(comunicaciones).omit({
   id: true,
   fechaHora: true,
+}).extend({
+  tipo: z.enum(["llamada", "email", "whatsapp", "presencial"]),
+  direccion: z.enum(["enviado", "recibido"]),
+  estado: z.enum(["completado", "pendiente", "fallido"]).optional(),
+  resultado: z.string().optional().nullable(),
+  duracion: z.number().int().positive().optional().nullable(),
+}).refine((data) => {
+  // Si es una llamada, la duración debe ser un número positivo cuando se proporcione
+  if (data.tipo === "llamada" && data.duracion !== null && data.duracion !== undefined) {
+    return data.duracion > 0;
+  }
+  return true;
+}, {
+  message: "La duración de las llamadas debe ser mayor que 0",
+  path: ["duracion"]
+});
+
+// Schema específico para actualizar comunicaciones
+export const updateComunicacionSchema = z.object({
+  contenido: z.string().min(1).optional(),
+  resultado: z.string().optional().nullable(),
+  duracion: z.number().int().positive().optional().nullable(),
+  estado: z.enum(["completado", "pendiente", "fallido"]).optional(),
+}).refine((data) => {
+  // Si se proporciona duración, debe ser positiva
+  if (data.duracion !== null && data.duracion !== undefined) {
+    return data.duracion > 0;
+  }
+  return true;
+}, {
+  message: "La duración debe ser mayor que 0",
+  path: ["duracion"]
 });
 
 export const insertCampanaSchema = createInsertSchema(campanas).omit({

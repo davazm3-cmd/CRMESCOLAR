@@ -43,9 +43,25 @@ export interface IStorage {
   }>;
   
   // Comunicaciones
+  getComunicacion(id: string): Promise<Comunicacion | undefined>;
   createComunicacion(comunicacion: InsertComunicacion): Promise<Comunicacion>;
+  updateComunicacion(id: string, comunicacion: Partial<InsertComunicacion>): Promise<Comunicacion>;
+  deleteComunicacion(id: string): Promise<boolean>;
   getComunicacionesByProspecto(prospectoId: string): Promise<Comunicacion[]>;
   getComunicacionesByAsesor(usuarioId: string): Promise<Comunicacion[]>;
+  getComunicacionesConFiltros(filters?: {
+    asesorId?: string;
+    tipo?: string;
+    fechaDesde?: string;
+    fechaHasta?: string;
+  }): Promise<Comunicacion[]>;
+  getComunicacionesStats(asesorId?: string, fechaDesde?: string, fechaHasta?: string): Promise<{
+    total: number;
+    porTipo: any[];
+    porResultado: any[];
+    duracionPromedio: number;
+    comunicacionesSemana: number;
+  }>;
   
   // Campañas
   createCampana(campana: InsertCampana): Promise<Campana>;
@@ -276,6 +292,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Métodos de comunicaciones
+  async getComunicacion(id: string): Promise<Comunicacion | undefined> {
+    const [comunicacion] = await db.select().from(comunicaciones).where(eq(comunicaciones.id, id));
+    return comunicacion || undefined;
+  }
+
   async createComunicacion(insertComunicacion: InsertComunicacion): Promise<Comunicacion> {
     const [comunicacion] = await db
       .insert(comunicaciones)
@@ -291,6 +312,25 @@ export class DatabaseStorage implements IStorage {
     return comunicacion;
   }
 
+  async updateComunicacion(id: string, updateData: Partial<InsertComunicacion>): Promise<Comunicacion> {
+    const [comunicacion] = await db
+      .update(comunicaciones)
+      .set(updateData)
+      .where(eq(comunicaciones.id, id))
+      .returning();
+    return comunicacion;
+  }
+
+  async deleteComunicacion(id: string): Promise<boolean> {
+    try {
+      const result = await db.delete(comunicaciones).where(eq(comunicaciones.id, id));
+      return (result.rowCount || 0) > 0;
+    } catch (error) {
+      console.error('Error deleting communication:', error);
+      return false;
+    }
+  }
+
   async getComunicacionesByProspecto(prospectoId: string): Promise<Comunicacion[]> {
     return db.select()
       .from(comunicaciones)
@@ -303,6 +343,125 @@ export class DatabaseStorage implements IStorage {
       .from(comunicaciones)
       .where(eq(comunicaciones.usuarioId, usuarioId))
       .orderBy(desc(comunicaciones.fechaHora));
+  }
+
+  async getComunicacionesConFiltros(filters: {
+    asesorId?: string;
+    tipo?: string;
+    fechaDesde?: string;
+    fechaHasta?: string;
+  } = {}): Promise<Comunicacion[]> {
+    let query = db.select().from(comunicaciones);
+    
+    const conditions = [];
+    
+    if (filters.asesorId) {
+      conditions.push(eq(comunicaciones.usuarioId, filters.asesorId));
+    }
+    
+    if (filters.tipo) {
+      conditions.push(eq(comunicaciones.tipo, filters.tipo));
+    }
+    
+    if (filters.fechaDesde) {
+      conditions.push(sql`${comunicaciones.fechaHora} >= ${new Date(filters.fechaDesde)}`);
+    }
+    
+    if (filters.fechaHasta) {
+      conditions.push(sql`${comunicaciones.fechaHora} <= ${new Date(filters.fechaHasta)}`);
+    }
+    
+    if (conditions.length > 0) {
+      return query.where(and(...conditions)).orderBy(desc(comunicaciones.fechaHora));
+    }
+    
+    return query.orderBy(desc(comunicaciones.fechaHora));
+  }
+
+  async getComunicacionesStats(asesorId?: string, fechaDesde?: string, fechaHasta?: string): Promise<{
+    total: number;
+    porTipo: any[];
+    porResultado: any[];
+    duracionPromedio: number;
+    comunicacionesSemana: number;
+  }> {
+    const conditions = [];
+    
+    // Filtro por asesor
+    if (asesorId) {
+      conditions.push(eq(comunicaciones.usuarioId, asesorId));
+    }
+    
+    // Filtros de fecha
+    if (fechaDesde) {
+      conditions.push(sql`${comunicaciones.fechaHora} >= ${new Date(fechaDesde)}`);
+    }
+    
+    if (fechaHasta) {
+      conditions.push(sql`${comunicaciones.fechaHora} <= ${new Date(fechaHasta)}`);
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    // Total de comunicaciones
+    let totalQuery = db.select({ count: count() }).from(comunicaciones);
+    if (whereClause) {
+      totalQuery = totalQuery.where(whereClause);
+    }
+    const totalResult = await totalQuery;
+    const total = totalResult[0]?.count || 0;
+
+    // Comunicaciones por tipo
+    let tipoQuery = db.select({
+      tipo: comunicaciones.tipo,
+      count: count()
+    }).from(comunicaciones);
+    if (whereClause) {
+      tipoQuery = tipoQuery.where(whereClause);
+    }
+    const porTipo = await tipoQuery.groupBy(comunicaciones.tipo);
+
+    // Comunicaciones por resultado
+    let resultadoQuery = db.select({
+      resultado: comunicaciones.resultado,
+      count: count()
+    }).from(comunicaciones);
+    if (whereClause) {
+      resultadoQuery = resultadoQuery.where(whereClause);
+    }
+    const porResultado = await resultadoQuery.groupBy(comunicaciones.resultado);
+
+    // Duración promedio
+    let duracionQuery = db.select({
+      promedio: avg(comunicaciones.duracion)
+    }).from(comunicaciones).where(sql`${comunicaciones.duracion} IS NOT NULL`);
+    if (whereClause) {
+      duracionQuery = duracionQuery.where(and(whereClause, sql`${comunicaciones.duracion} IS NOT NULL`));
+    }
+    const duracionResult = await duracionQuery;
+    const duracionPromedio = Number(duracionResult[0]?.promedio) || 0;
+
+    // Comunicaciones de la semana pasada
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    weekAgo.setHours(0, 0, 0, 0);
+    
+    let semanaQuery = db.select({ count: count() }).from(comunicaciones);
+    const semanaConditions = [sql`${comunicaciones.fechaHora} >= ${weekAgo}`];
+    if (asesorId) {
+      semanaConditions.push(eq(comunicaciones.usuarioId, asesorId));
+    }
+    semanaQuery = semanaQuery.where(and(...semanaConditions));
+    const semanaResult = await semanaQuery;
+    const comunicacionesSemana = semanaResult[0]?.count || 0;
+
+    return {
+      total: Number(total),
+      porTipo: porTipo.map(t => ({ tipo: t.tipo, count: Number(t.count) })),
+      porResultado: porResultado.map(r => ({ resultado: r.resultado, count: Number(r.count) })),
+      duracionPromedio,
+      comunicacionesSemana: Number(comunicacionesSemana)
+    };
   }
 
   // Métodos de campañas
