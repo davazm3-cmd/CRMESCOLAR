@@ -35,6 +35,11 @@ const menuItems = [
     icon: Users,
   },
   {
+    title: "Estudiantes",
+    url: "#estudiantes",
+    icon: GraduationCap,
+  },
+  {
     title: "Comunicaciones",
     url: "#comunicaciones",
     icon: MessageCircle,

@@ -14,6 +14,7 @@ import { CommunicationCenter } from "@/components/communication-center";
 import { CampaignManager } from "@/components/campaign-manager";
 import { ReportsCenter } from "@/components/reports-center";
 import FormulariosPublicosManager from "@/components/formularios-publicos-manager";
+import EstudiantesManager from "@/components/estudiantes-manager";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
@@ -173,6 +174,8 @@ function MainApp() {
         
       case "prospectos":
         return <ProspectManager />;
+      case "estudiantes":
+        return <EstudiantesManager />;
       case "comunicaciones":
         return <CommunicationCenter />;
       case "campanas":
