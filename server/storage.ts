@@ -64,11 +64,33 @@ export interface IStorage {
   }>;
   
   // Campañas
+  getCampana(id: string): Promise<Campana | undefined>;
   createCampana(campana: InsertCampana): Promise<Campana>;
   getCampanas(activas?: boolean): Promise<Campana[]>;
   updateCampana(id: string, campana: Partial<InsertCampana>): Promise<Campana>;
+  deleteCampana(id: string): Promise<boolean>;
   linkProspectoACampana(prospectoId: string, campanaId: string): Promise<boolean>;
   unlinkProspectoACampana(prospectoId: string, campanaId: string): Promise<boolean>;
+  getProspectosByCampana(campanaId: string): Promise<Prospecto[]>;
+  getCampanasStats(fechaDesde?: string, fechaHasta?: string, canal?: string): Promise<{
+    totalCampanas: number;
+    campanasActivas: number;
+    presupuestoTotal: number;
+    gastadoTotal: number;
+    roi: number;
+    porCanal: any[];
+    prospectosPorCampana: any[];
+    conversionPorCampana: any[];
+  }>;
+  getCampanaStats(campanaId: string): Promise<{
+    prospectos: number;
+    inscripciones: number;
+    tasaConversion: number;
+    costoProspecto: number;
+    roi: number;
+    gastado: number;
+    presupuesto: number;
+  }>;
   
   // Métricas y reportes
   getMetricasDirector(): Promise<{
@@ -465,6 +487,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Métodos de campañas
+  async getCampana(id: string): Promise<Campana | undefined> {
+    const [campana] = await db.select().from(campanas).where(eq(campanas.id, id));
+    return campana || undefined;
+  }
+
   async createCampana(insertCampana: InsertCampana): Promise<Campana> {
     const [campana] = await db
       .insert(campanas)
@@ -477,8 +504,14 @@ export class DatabaseStorage implements IStorage {
     let query = db.select().from(campanas);
     
     if (activas !== undefined) {
-      const estado = activas ? 'activa' : 'pausada';
-      return query.where(eq(campanas.estado, estado)).orderBy(desc(campanas.fechaCreacion));
+      if (activas) {
+        return query.where(eq(campanas.estado, 'activa')).orderBy(desc(campanas.fechaCreacion));
+      } else {
+        // Para inactivas, incluir tanto pausadas como finalizadas
+        return query.where(
+          sql`${campanas.estado} IN ('pausada', 'finalizada')`
+        ).orderBy(desc(campanas.fechaCreacion));
+      }
     }
     
     return query.orderBy(desc(campanas.fechaCreacion));
@@ -491,6 +524,20 @@ export class DatabaseStorage implements IStorage {
       .where(eq(campanas.id, id))
       .returning();
     return campana;
+  }
+
+  async deleteCampana(id: string): Promise<boolean> {
+    try {
+      // Primero eliminar relaciones con prospectos
+      await db.delete(prospectosCampanas).where(eq(prospectosCampanas.campanaId, id));
+      
+      // Eliminar la campaña
+      const result = await db.delete(campanas).where(eq(campanas.id, id));
+      return (result.rowCount || 0) > 0;
+    } catch (error) {
+      console.error('Error deleting campaign:', error);
+      return false;
+    }
   }
 
   async linkProspectoACampana(prospectoId: string, campanaId: string): Promise<boolean> {
@@ -521,6 +568,217 @@ export class DatabaseStorage implements IStorage {
       console.error('Error unlinking prospect from campaign:', error);
       return false;
     }
+  }
+
+  async getProspectosByCampana(campanaId: string): Promise<Prospecto[]> {
+    return db
+      .select({
+        id: prospectos.id,
+        nombre: prospectos.nombre,
+        telefono: prospectos.telefono,
+        email: prospectos.email,
+        nivelEducativo: prospectos.nivelEducativo,
+        origen: prospectos.origen,
+        estatus: prospectos.estatus,
+        asesorId: prospectos.asesorId,
+        prioridad: prospectos.prioridad,
+        valorInscripcion: prospectos.valorInscripcion,
+        notas: prospectos.notas,
+        fechaRegistro: prospectos.fechaRegistro,
+        ultimaInteraccion: prospectos.ultimaInteraccion,
+        fechaCita: prospectos.fechaCita,
+        datosAdicionales: prospectos.datosAdicionales
+      })
+      .from(prospectos)
+      .innerJoin(prospectosCampanas, eq(prospectos.id, prospectosCampanas.prospectoId))
+      .where(eq(prospectosCampanas.campanaId, campanaId));
+  }
+
+  async getCampanasStats(fechaDesde?: string, fechaHasta?: string, canal?: string): Promise<{
+    totalCampanas: number;
+    campanasActivas: number;
+    presupuestoTotal: number;
+    gastadoTotal: number;
+    roi: number;
+    porCanal: any[];
+    prospectosPorCampana: any[];
+    conversionPorCampana: any[];
+  }> {
+    const conditions = [];
+    
+    if (fechaDesde) {
+      conditions.push(sql`${campanas.fechaCreacion} >= ${new Date(fechaDesde)}`);
+    }
+    
+    if (fechaHasta) {
+      conditions.push(sql`${campanas.fechaCreacion} <= ${new Date(fechaHasta)}`);
+    }
+    
+    if (canal) {
+      conditions.push(eq(campanas.canal, canal));
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    // Total campañas
+    let totalQuery = db.select({ count: count() }).from(campanas);
+    if (whereClause) {
+      totalQuery = totalQuery.where(whereClause);
+    }
+    const totalResult = await totalQuery;
+    const totalCampanas = totalResult[0]?.count || 0;
+
+    // Campañas activas
+    let activasQuery = db.select({ count: count() }).from(campanas);
+    const activasConditions = [eq(campanas.estado, "activa")];
+    if (whereClause) {
+      activasConditions.push(whereClause);
+    }
+    activasQuery = activasQuery.where(and(...activasConditions));
+    const activasResult = await activasQuery;
+    const campanasActivas = activasResult[0]?.count || 0;
+
+    // Presupuesto total
+    let presupuestoQuery = db.select({ 
+      sum: sql<string>`COALESCE(SUM(CAST(${campanas.presupuesto} AS DECIMAL)), 0)` 
+    }).from(campanas);
+    if (whereClause) {
+      presupuestoQuery = presupuestoQuery.where(whereClause);
+    }
+    const presupuestoResult = await presupuestoQuery;
+    const presupuestoTotal = Number(presupuestoResult[0]?.sum) || 0;
+
+    // Gastado total
+    let gastadoQuery = db.select({ 
+      sum: sql<string>`COALESCE(SUM(CAST(${campanas.gastado} AS DECIMAL)), 0)` 
+    }).from(campanas);
+    if (whereClause) {
+      gastadoQuery = gastadoQuery.where(whereClause);
+    }
+    const gastadoResult = await gastadoQuery;
+    const gastadoTotal = Number(gastadoResult[0]?.sum) || 0;
+
+    // ROI calculado con ingresos reales de inscripciones
+    // Calcular ingresos totales de prospectos inscritos
+    let ingresosQuery = db
+      .select({
+        ingresos: sql<string>`COALESCE(SUM(CAST(${prospectos.valorInscripcion} AS DECIMAL)), 0)`
+      })
+      .from(prospectos)
+      .innerJoin(prospectosCampanas, eq(prospectos.id, prospectosCampanas.prospectoId))
+      .innerJoin(campanas, eq(prospectosCampanas.campanaId, campanas.id))
+      .where(
+        and(
+          eq(prospectos.estatus, 'inscrito'),
+          whereClause ? whereClause : sql`true`
+        )
+      );
+
+    const ingresosResult = await ingresosQuery;
+    const ingresosTotal = Number(ingresosResult[0]?.ingresos) || 0;
+
+    // ROI = ((Ingresos - Costos) / Costos) * 100
+    const roi = gastadoTotal > 0 ? ((ingresosTotal - gastadoTotal) / gastadoTotal) * 100 : 0;
+
+    // Campañas por canal
+    let canalQuery = db.select({
+      canal: campanas.canal,
+      count: count(),
+      presupuesto: sql<string>`COALESCE(SUM(CAST(${campanas.presupuesto} AS DECIMAL)), 0)`,
+      gastado: sql<string>`COALESCE(SUM(CAST(${campanas.gastado} AS DECIMAL)), 0)`
+    }).from(campanas);
+    if (whereClause) {
+      canalQuery = canalQuery.where(whereClause);
+    }
+    const porCanal = await canalQuery.groupBy(campanas.canal);
+
+    return {
+      totalCampanas: Number(totalCampanas),
+      campanasActivas: Number(campanasActivas),
+      presupuestoTotal,
+      gastadoTotal,
+      roi,
+      porCanal: porCanal.map(c => ({
+        canal: c.canal,
+        count: Number(c.count),
+        presupuesto: Number(c.presupuesto),
+        gastado: Number(c.gastado)
+      })),
+      prospectosPorCampana: [], // Implementar si necesario
+      conversionPorCampana: []   // Implementar si necesario
+    };
+  }
+
+  async getCampanaStats(campanaId: string): Promise<{
+    prospectos: number;
+    inscripciones: number;
+    tasaConversion: number;
+    costoProspecto: number;
+    roi: number;
+    gastado: number;
+    presupuesto: number;
+  }> {
+    // Obtener campaña
+    const campana = await this.getCampana(campanaId);
+    if (!campana) {
+      throw new Error('Campaña no encontrada');
+    }
+
+    const presupuesto = Number(campana.presupuesto);
+    const gastado = Number(campana.gastado);
+
+    // Contar prospectos vinculados
+    const [prospectosResult] = await db
+      .select({ count: count() })
+      .from(prospectosCampanas)
+      .where(eq(prospectosCampanas.campanaId, campanaId));
+
+    const prospectos = Number(prospectosResult.count);
+
+    // Contar inscripciones (prospectos con estatus inscrito)
+    const inscripcionesResult = await db
+      .select({ count: count() })
+      .from(prospectos)
+      .innerJoin(prospectosCampanas, eq(prospectos.id, prospectosCampanas.prospectoId))
+      .where(
+        and(
+          eq(prospectosCampanas.campanaId, campanaId),
+          eq(prospectos.estatus, 'inscrito')
+        )
+      );
+
+    const inscripciones = Number(inscripcionesResult[0]?.count) || 0;
+
+    // Calcular ingresos reales de inscripciones para ROI
+    const ingresosResult = await db
+      .select({
+        ingresos: sql<string>`COALESCE(SUM(CAST(${prospectos.valorInscripcion} AS DECIMAL)), 0)`
+      })
+      .from(prospectos)
+      .innerJoin(prospectosCampanas, eq(prospectos.id, prospectosCampanas.prospectoId))
+      .where(
+        and(
+          eq(prospectosCampanas.campanaId, campanaId),
+          eq(prospectos.estatus, 'inscrito')
+        )
+      );
+
+    const ingresos = Number(ingresosResult[0]?.ingresos) || 0;
+
+    // Calcular métricas
+    const tasaConversion = prospectos > 0 ? (inscripciones / prospectos) * 100 : 0;
+    const costoProspecto = prospectos > 0 ? gastado / prospectos : 0;
+    const roi = gastado > 0 ? ((ingresos - gastado) / gastado) * 100 : 0;
+
+    return {
+      prospectos,
+      inscripciones,
+      tasaConversion,
+      costoProspecto,
+      roi,
+      gastado,
+      presupuesto
+    };
   }
 
   // Métricas para Dashboard Director

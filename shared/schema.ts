@@ -27,6 +27,7 @@ export const prospectos = pgTable("prospectos", {
   estatus: text("estatus").notNull().default('primer_contacto'), // 'primer_contacto', 'seguimiento', 'cita_agendada', 'inscrito', 'no_interesado'
   asesorId: varchar("asesor_id").references(() => users.id),
   prioridad: text("prioridad").notNull().default('media'), // 'alta', 'media', 'baja'
+  valorInscripcion: decimal("valor_inscripcion", { precision: 10, scale: 2 }), // Valor económico cuando se inscribe
   notas: text("notas"),
   fechaRegistro: timestamp("fecha_registro").defaultNow(),
   ultimaInteraccion: timestamp("ultima_interaccion").defaultNow(),
@@ -180,6 +181,63 @@ export const updateComunicacionSchema = z.object({
 export const insertCampanaSchema = createInsertSchema(campanas).omit({
   id: true,
   fechaCreacion: true,
+}).extend({
+  canal: z.enum(["facebook", "google", "redes_sociales", "eventos", "referencias", "telefono", "email"]),
+  estado: z.enum(["activa", "pausada", "finalizada"]).optional(),
+  presupuesto: z.string().regex(/^\d+(\.\d{1,2})?$/, "Presupuesto debe ser un número válido"),
+  gastado: z.string().regex(/^\d+(\.\d{1,2})?$/, "Gastado debe ser un número válido").optional(),
+  fechaInicio: z.date(),
+  fechaFin: z.date(),
+  metaProspectos: z.number().int().positive().optional(),
+  metaInscritos: z.number().int().positive().optional(),
+}).refine((data) => {
+  // Fecha fin debe ser después de fecha inicio
+  return data.fechaFin > data.fechaInicio;
+}, {
+  message: "La fecha de fin debe ser posterior a la fecha de inicio",
+  path: ["fechaFin"]
+}).refine((data) => {
+  // Presupuesto debe ser mayor que gastado si se proporciona
+  if (data.gastado) {
+    return parseFloat(data.presupuesto) >= parseFloat(data.gastado);
+  }
+  return true;
+}, {
+  message: "El presupuesto debe ser mayor o igual al monto gastado",
+  path: ["presupuesto"]
+});
+
+// Schema para actualizar campañas
+export const updateCampanaSchema = z.object({
+  nombre: z.string().min(1).optional(),
+  descripcion: z.string().optional(),
+  canal: z.enum(["facebook", "google", "redes_sociales", "eventos", "referencias", "telefono", "email"]).optional(),
+  estado: z.enum(["activa", "pausada", "finalizada"]).optional(),
+  presupuesto: z.string().regex(/^\d+(\.\d{1,2})?$/, "Presupuesto debe ser un número válido").optional(),
+  gastado: z.string().regex(/^\d+(\.\d{1,2})?$/, "Gastado debe ser un número válido").optional(),
+  fechaInicio: z.date().optional(),
+  fechaFin: z.date().optional(),
+  metaProspectos: z.number().int().positive().optional(),
+  metaInscritos: z.number().int().positive().optional(),
+  configuracion: z.any().optional(),
+}).refine((data) => {
+  // Si se proporcionan ambas fechas, validar orden
+  if (data.fechaInicio && data.fechaFin) {
+    return data.fechaFin > data.fechaInicio;
+  }
+  return true;
+}, {
+  message: "La fecha de fin debe ser posterior a la fecha de inicio",
+  path: ["fechaFin"]
+}).refine((data) => {
+  // Si se proporcionan presupuesto y gastado, validar que presupuesto >= gastado
+  if (data.presupuesto && data.gastado) {
+    return parseFloat(data.presupuesto) >= parseFloat(data.gastado);
+  }
+  return true;
+}, {
+  message: "El presupuesto debe ser mayor o igual al monto gastado",
+  path: ["presupuesto"]
 });
 
 export const insertReporteSchema = createInsertSchema(reportes).omit({

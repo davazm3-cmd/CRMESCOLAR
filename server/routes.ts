@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireRole } from "./auth";
-import { insertComunicacionSchema, updateComunicacionSchema } from "@shared/schema";
+import { insertComunicacionSchema, updateComunicacionSchema, insertCampanaSchema, updateCampanaSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Configurar autenticación (basado en blueprint:javascript_auth_all_persistance)
@@ -449,26 +449,213 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/campanas", requireRole(["director", "gerente"]), async (req, res) => {
     try {
-      const { nombre, descripcion, presupuesto, fechaInicio, fechaFin } = req.body;
+      // Preparar datos para validación con fechas convertidas
+      const datosValidacion = {
+        ...req.body,
+        fechaInicio: req.body.fechaInicio ? new Date(req.body.fechaInicio) : new Date(),
+        fechaFin: req.body.fechaFin ? new Date(req.body.fechaFin) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        presupuesto: req.body.presupuesto ? req.body.presupuesto.toString() : "0",
+        gastado: "0",
+        estado: "activa"
+      };
+
+      // Validar datos con Zod
+      const validationResult = insertCampanaSchema.safeParse(datosValidacion);
       
-      if (!nombre || !descripcion) {
-        return res.status(400).json({ error: "Nombre y descripción son requeridos" });
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Datos inválidos", 
+          details: validationResult.error.issues 
+        });
       }
 
-      const campana = await storage.createCampana({
-        nombre,
-        descripcion,
-        canal: "web",
-        presupuesto: presupuesto ? presupuesto.toString() : "0",
-        gastado: "0",
-        fechaInicio: fechaInicio ? new Date(fechaInicio) : new Date(),
-        fechaFin: fechaFin ? new Date(fechaFin) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        estado: "activa"
-      });
-      
+      const campana = await storage.createCampana(validationResult.data);
       res.status(201).json(campana);
     } catch (error) {
       console.error("Error creating campaign:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Obtener campaña específica
+  app.get("/api/campanas/:id", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const campana = await storage.getCampana(id);
+      
+      if (!campana) {
+        return res.status(404).json({ error: "Campaña no encontrada" });
+      }
+      
+      res.json(campana);
+    } catch (error) {
+      console.error("Error getting campaign:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Actualizar campaña
+  app.put("/api/campanas/:id", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const campanaExistente = await storage.getCampana(id);
+      if (!campanaExistente) {
+        return res.status(404).json({ error: "Campaña no encontrada" });
+      }
+
+      // Preparar datos para validación
+      const datosValidacion: any = {};
+      if (req.body.nombre) datosValidacion.nombre = req.body.nombre;
+      if (req.body.descripcion) datosValidacion.descripcion = req.body.descripcion;
+      if (req.body.canal) datosValidacion.canal = req.body.canal;
+      if (req.body.presupuesto !== undefined) datosValidacion.presupuesto = req.body.presupuesto.toString();
+      if (req.body.gastado !== undefined) datosValidacion.gastado = req.body.gastado.toString();
+      if (req.body.estado) datosValidacion.estado = req.body.estado;
+      if (req.body.fechaInicio) datosValidacion.fechaInicio = new Date(req.body.fechaInicio);
+      if (req.body.fechaFin) datosValidacion.fechaFin = new Date(req.body.fechaFin);
+      if (req.body.metaProspectos) datosValidacion.metaProspectos = req.body.metaProspectos;
+      if (req.body.metaInscritos) datosValidacion.metaInscritos = req.body.metaInscritos;
+      if (req.body.configuracion) datosValidacion.configuracion = req.body.configuracion;
+
+      // Validar datos con Zod
+      const validationResult = updateCampanaSchema.safeParse(datosValidacion);
+      
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Datos inválidos", 
+          details: validationResult.error.issues 
+        });
+      }
+
+      const campanaActualizada = await storage.updateCampana(id, validationResult.data);
+      res.json(campanaActualizada);
+    } catch (error) {
+      console.error("Error updating campaign:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Eliminar campaña (solo director)
+  app.delete("/api/campanas/:id", requireRole(["director"]), async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const campanaExistente = await storage.getCampana(id);
+      if (!campanaExistente) {
+        return res.status(404).json({ error: "Campaña no encontrada" });
+      }
+
+      const eliminada = await storage.deleteCampana(id);
+      if (eliminada) {
+        res.json({ message: "Campaña eliminada exitosamente" });
+      } else {
+        res.status(500).json({ error: "No se pudo eliminar la campaña" });
+      }
+    } catch (error) {
+      console.error("Error deleting campaign:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Vincular prospecto a campaña
+  app.post("/api/campanas/:id/prospectos", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { prospectoId } = req.body;
+
+      if (!prospectoId) {
+        return res.status(400).json({ error: "ID de prospecto requerido" });
+      }
+
+      const campana = await storage.getCampana(id);
+      if (!campana) {
+        return res.status(404).json({ error: "Campaña no encontrada" });
+      }
+
+      const prospecto = await storage.getProspecto(prospectoId);
+      if (!prospecto) {
+        return res.status(404).json({ error: "Prospecto no encontrado" });
+      }
+
+      const vinculado = await storage.linkProspectoACampana(prospectoId, id);
+      if (vinculado) {
+        res.json({ message: "Prospecto vinculado a campaña exitosamente" });
+      } else {
+        res.status(500).json({ error: "No se pudo vincular el prospecto a la campaña" });
+      }
+    } catch (error) {
+      console.error("Error linking prospect to campaign:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Desvincular prospecto de campaña
+  app.delete("/api/campanas/:id/prospectos/:prospectoId", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { id, prospectoId } = req.params;
+
+      const desvinculado = await storage.unlinkProspectoACampana(prospectoId, id);
+      if (desvinculado) {
+        res.json({ message: "Prospecto desvinculado de campaña exitosamente" });
+      } else {
+        res.status(500).json({ error: "No se pudo desvincular el prospecto de la campaña" });
+      }
+    } catch (error) {
+      console.error("Error unlinking prospect from campaign:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Obtener prospectos de una campaña
+  app.get("/api/campanas/:id/prospectos", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const campana = await storage.getCampana(id);
+      if (!campana) {
+        return res.status(404).json({ error: "Campaña no encontrada" });
+      }
+
+      const prospectos = await storage.getProspectosByCampana(id);
+      res.json(prospectos);
+    } catch (error) {
+      console.error("Error getting campaign prospects:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // ROI y métricas por canal - estadísticas detalladas de campañas
+  app.get("/api/campanas/stats", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { fechaDesde, fechaHasta, canal } = req.query;
+      
+      const stats = await storage.getCampanasStats(
+        fechaDesde as string, 
+        fechaHasta as string, 
+        canal as string
+      );
+      res.json(stats);
+    } catch (error) {
+      console.error("Error getting campaign stats:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Métricas específicas de una campaña
+  app.get("/api/campanas/:id/stats", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const campana = await storage.getCampana(id);
+      if (!campana) {
+        return res.status(404).json({ error: "Campaña no encontrada" });
+      }
+
+      const stats = await storage.getCampanaStats(id);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error getting individual campaign stats:", error);
       res.status(500).json({ error: "Error interno del servidor" });
     }
   });
