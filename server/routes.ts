@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireRole } from "./auth";
-import { insertComunicacionSchema, updateComunicacionSchema, insertCampanaSchema, updateCampanaSchema } from "@shared/schema";
+import { insertComunicacionSchema, updateComunicacionSchema, insertCampanaSchema, updateCampanaSchema, insertReporteSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Configurar autenticación (basado en blueprint:javascript_auth_all_persistance)
@@ -656,6 +656,158 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(stats);
     } catch (error) {
       console.error("Error getting individual campaign stats:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // ================ SISTEMA DE REPORTES ================
+
+  // Obtener reportes (solo gerente y director)
+  app.get("/api/reportes", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const reportes = await storage.getReportes();
+      res.json(reportes);
+    } catch (error) {
+      console.error("Error getting reports:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Crear reporte programado
+  app.post("/api/reportes", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      // Validar datos de entrada con Zod
+      const validation = insertReporteSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          error: "Datos inválidos", 
+          details: validation.error.errors 
+        });
+      }
+
+      const { nombre, tipo, frecuencia, destinatarios, configuracion } = validation.data;
+
+      const reporte = await storage.createReporte({
+        nombre,
+        tipo,
+        frecuencia,
+        destinatarios,
+        configuracion,
+        activo: true
+      });
+      
+      res.status(201).json(reporte);
+    } catch (error) {
+      console.error("Error creating report:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Actualizar reporte
+  app.put("/api/reportes/:id", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { nombre, tipo, frecuencia, destinatarios, configuracion, activo } = req.body;
+
+      const reporteExistente = await storage.getReporte(id);
+      if (!reporteExistente) {
+        return res.status(404).json({ error: "Reporte no encontrado" });
+      }
+
+      const updateData: any = {};
+      if (nombre) updateData.nombre = nombre;
+      if (tipo) updateData.tipo = tipo;
+      if (frecuencia) updateData.frecuencia = frecuencia;
+      if (destinatarios) updateData.destinatarios = destinatarios; // jsonb field - don't stringify
+      if (configuracion !== undefined) updateData.configuracion = configuracion; // jsonb field - don't stringify
+      if (activo !== undefined) updateData.activo = activo;
+
+      const reporteActualizado = await storage.updateReporte(id, updateData);
+      res.json(reporteActualizado);
+    } catch (error) {
+      console.error("Error updating report:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Eliminar reporte (solo director)
+  app.delete("/api/reportes/:id", requireRole(["director"]), async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const reporteExistente = await storage.getReporte(id);
+      if (!reporteExistente) {
+        return res.status(404).json({ error: "Reporte no encontrado" });
+      }
+
+      const eliminado = await storage.deleteReporte(id);
+      if (eliminado) {
+        res.json({ message: "Reporte eliminado exitosamente" });
+      } else {
+        res.status(500).json({ error: "No se pudo eliminar el reporte" });
+      }
+    } catch (error) {
+      console.error("Error deleting report:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Generar reporte inmediato con exportación
+  app.post("/api/reportes/generar", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { tipo, formato, filtros } = req.body;
+      
+      if (!tipo || !formato) {
+        return res.status(400).json({ error: "Tipo y formato son requeridos" });
+      }
+
+      if (!["pdf", "excel", "csv"].includes(formato)) {
+        return res.status(400).json({ error: "Formato debe ser pdf, excel o csv" });
+      }
+
+      const reporteData = await storage.generarDatosReporte(tipo, filtros);
+      const archivoGenerado = await storage.exportarReporte(reporteData, formato, tipo);
+      
+      res.json({
+        message: "Reporte generado exitosamente",
+        archivo: archivoGenerado,
+        datos: reporteData
+      });
+    } catch (error) {
+      console.error("Error generating report:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Ejecutar reporte programado manualmente
+  app.post("/api/reportes/:id/ejecutar", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const reporte = await storage.getReporte(id);
+      if (!reporte) {
+        return res.status(404).json({ error: "Reporte no encontrado" });
+      }
+
+      const resultado = await storage.ejecutarReporte(id);
+      if (resultado) {
+        res.json({ message: "Reporte ejecutado exitosamente" });
+      } else {
+        res.status(500).json({ error: "No se pudo ejecutar el reporte" });
+      }
+    } catch (error) {
+      console.error("Error executing report:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Dashboard de reportes - métricas generales
+  app.get("/api/reportes/dashboard", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const dashboard = await storage.getDashboardReportes();
+      res.json(dashboard);
+    } catch (error) {
+      console.error("Error getting reports dashboard:", error);
       res.status(500).json({ error: "Error interno del servidor" });
     }
   });

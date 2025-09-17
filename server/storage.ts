@@ -8,6 +8,11 @@ import { eq, like, and, desc, count, sum, avg, sql } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import bcrypt from "bcrypt";
+import PDFDocument from "pdfkit";
+import * as ExcelJS from "exceljs";
+import createCsvWriter from "csv-writer";
+import fs from "fs-extra";
+import path from "path";
 
 const PostgresSessionStore = connectPg(session);
 
@@ -92,6 +97,22 @@ export interface IStorage {
     presupuesto: number;
   }>;
   
+  // Reportes
+  getReporte(id: string): Promise<any>;
+  getReportes(): Promise<any[]>;
+  createReporte(reporte: any): Promise<any>;
+  updateReporte(id: string, reporte: any): Promise<any>;
+  deleteReporte(id: string): Promise<boolean>;
+  ejecutarReporte(id: string): Promise<boolean>;
+  generarDatosReporte(tipo: string, filtros?: any): Promise<any>;
+  exportarReporte(datos: any, formato: string, tipoReporte: string): Promise<string>;
+  getDashboardReportes(): Promise<{
+    totalReportes: number;
+    reportesActivos: number;
+    ultimasEjecuciones: any[];
+    reportesPendientes: number;
+  }>;
+
   // Métricas y reportes
   getMetricasDirector(): Promise<{
     totalProspectos: number;
@@ -937,6 +958,599 @@ export class DatabaseStorage implements IStorage {
       proximasCitas,
       metricsPersonales: metricsResult
     };
+  }
+
+  // MÉTODOS DE REPORTES
+  
+  // Obtener reporte individual
+  async getReporte(id: string): Promise<any> {
+    const [reporte] = await db.select().from(reportes).where(eq(reportes.id, id));
+    return reporte || undefined;
+  }
+
+  // Obtener todos los reportes
+  async getReportes(): Promise<any[]> {
+    return db.select().from(reportes).orderBy(desc(reportes.fechaCreacion));
+  }
+
+  // Crear nuevo reporte
+  async createReporte(insertReporte: any): Promise<any> {
+    // Calcular próxima ejecución basada en frecuencia
+    const proximaEjecucion = this.calcularProximaEjecucion(insertReporte.frecuencia);
+    
+    const [reporte] = await db
+      .insert(reportes)
+      .values({
+        ...insertReporte,
+        proximaEjecucion
+      })
+      .returning();
+      
+    return reporte;
+  }
+
+  // Actualizar reporte
+  async updateReporte(id: string, updateData: any): Promise<any> {
+    // Si se actualiza la frecuencia, recalcular próxima ejecución
+    if (updateData.frecuencia) {
+      updateData.proximaEjecucion = this.calcularProximaEjecucion(updateData.frecuencia);
+    }
+    
+    const [reporte] = await db
+      .update(reportes)
+      .set(updateData)
+      .where(eq(reportes.id, id))
+      .returning();
+      
+    return reporte;
+  }
+
+  // Eliminar reporte
+  async deleteReporte(id: string): Promise<boolean> {
+    try {
+      const result = await db.delete(reportes).where(eq(reportes.id, id));
+      return (result.rowCount || 0) > 0;
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      return false;
+    }
+  }
+
+  // Ejecutar reporte específico
+  async ejecutarReporte(id: string): Promise<boolean> {
+    try {
+      const reporte = await this.getReporte(id);
+      if (!reporte) {
+        console.error('Report not found:', id);
+        return false;
+      }
+
+      // Generar datos del reporte
+      const datos = await this.generarDatosReporte(reporte.tipo, reporte.configuracion);
+      
+      // Aquí se podría enviar por email a los destinatarios
+      // Por ahora solo actualizamos la fecha de ejecución
+      
+      const ahora = new Date();
+      const proximaEjecucion = this.calcularProximaEjecucion(reporte.frecuencia, ahora);
+      
+      await db
+        .update(reportes)
+        .set({
+          ultimaEjecucion: ahora,
+          proximaEjecucion
+        })
+        .where(eq(reportes.id, id));
+        
+      console.log(`Report ${reporte.nombre} executed successfully`);
+      return true;
+    } catch (error) {
+      console.error('Error executing report:', error);
+      return false;
+    }
+  }
+
+  // Generar datos específicos por tipo de reporte
+  async generarDatosReporte(tipo: string, filtros?: any): Promise<any> {
+    const ahora = new Date();
+    const fechaDesde = filtros?.fechaDesde ? new Date(filtros.fechaDesde) : new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1);
+    const fechaHasta = filtros?.fechaHasta ? new Date(filtros.fechaHasta) : ahora;
+
+    switch (tipo) {
+      case 'ejecutivo':
+        return await this.generarReporteEjecutivo(fechaDesde, fechaHasta, filtros);
+      
+      case 'asesores':
+        return await this.generarReporteAsesores(fechaDesde, fechaHasta, filtros);
+      
+      case 'campanas':
+        return await this.generarReporteCampanas(fechaDesde, fechaHasta, filtros);
+      
+      case 'conversiones':
+        return await this.generarReporteConversiones(fechaDesde, fechaHasta, filtros);
+      
+      default:
+        throw new Error(`Tipo de reporte no soportado: ${tipo}`);
+    }
+  }
+
+  // Exportar reporte en formato específico
+  async exportarReporte(datos: any, formato: string, tipoReporte: string): Promise<string> {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = `reporte_${tipoReporte}_${timestamp}.${formato.toLowerCase()}`;
+    
+    try {
+      switch (formato.toLowerCase()) {
+        case 'csv':
+          return this.exportarCSV(datos, fileName);
+        
+        case 'pdf':
+          return this.exportarPDF(datos, fileName, tipoReporte);
+        
+        case 'excel':
+          return this.exportarExcel(datos, fileName);
+        
+        default:
+          throw new Error(`Formato no soportado: ${formato}`);
+      }
+    } catch (error) {
+      console.error('Error exporting report:', error);
+      throw error;
+    }
+  }
+
+  // Dashboard de reportes
+  async getDashboardReportes(): Promise<{
+    totalReportes: number;
+    reportesActivos: number;
+    ultimasEjecuciones: any[];
+    reportesPendientes: number;
+  }> {
+    // Total de reportes
+    const [totalResult] = await db.select({ count: count() }).from(reportes);
+    const totalReportes = Number(totalResult?.count || 0);
+
+    // Reportes activos
+    const [activosResult] = await db
+      .select({ count: count() })
+      .from(reportes)
+      .where(eq(reportes.activo, true));
+    const reportesActivos = Number(activosResult?.count || 0);
+
+    // Últimas ejecuciones
+    const ultimasEjecuciones = await db
+      .select({
+        id: reportes.id,
+        nombre: reportes.nombre,
+        tipo: reportes.tipo,
+        ultimaEjecucion: reportes.ultimaEjecucion,
+        proximaEjecucion: reportes.proximaEjecucion
+      })
+      .from(reportes)
+      .where(sql`${reportes.ultimaEjecucion} IS NOT NULL`)
+      .orderBy(desc(reportes.ultimaEjecucion))
+      .limit(10);
+
+    // Reportes pendientes de ejecución
+    const [pendientesResult] = await db
+      .select({ count: count() })
+      .from(reportes)
+      .where(
+        and(
+          eq(reportes.activo, true),
+          sql`${reportes.proximaEjecucion} <= NOW()`
+        )
+      );
+    const reportesPendientes = Number(pendientesResult?.count || 0);
+
+    return {
+      totalReportes,
+      reportesActivos,
+      ultimasEjecuciones,
+      reportesPendientes
+    };
+  }
+
+  // MÉTODOS AUXILIARES PARA REPORTES
+
+  // Calcular próxima ejecución basada en frecuencia
+  private calcularProximaEjecucion(frecuencia: string, desde?: Date): Date {
+    const base = desde || new Date();
+    const proxima = new Date(base);
+
+    switch (frecuencia) {
+      case 'diario':
+        proxima.setDate(proxima.getDate() + 1);
+        break;
+      case 'semanal':
+        proxima.setDate(proxima.getDate() + 7);
+        break;
+      case 'mensual':
+        proxima.setMonth(proxima.getMonth() + 1);
+        break;
+      default:
+        // Default a semanal si no se reconoce la frecuencia
+        proxima.setDate(proxima.getDate() + 7);
+    }
+
+    return proxima;
+  }
+
+  // Generar reporte ejecutivo
+  private async generarReporteEjecutivo(fechaDesde: Date, fechaHasta: Date, filtros?: any): Promise<any> {
+    const metricas = await this.getMetricasDirector();
+    
+    // Estadísticas adicionales por período
+    const [prospectosPerido] = await db
+      .select({ count: count() })
+      .from(prospectos)
+      .where(
+        and(
+          sql`${prospectos.fechaRegistro} >= ${fechaDesde}`,
+          sql`${prospectos.fechaRegistro} <= ${fechaHasta}`
+        )
+      );
+
+    const [inscritosPeriodo] = await db
+      .select({ count: count() })
+      .from(prospectos)
+      .where(
+        and(
+          eq(prospectos.estatus, 'inscrito'),
+          sql`${prospectos.ultimaInteraccion} >= ${fechaDesde}`,
+          sql`${prospectos.ultimaInteraccion} <= ${fechaHasta}`
+        )
+      );
+
+    const [gastoCampanas] = await db
+      .select({ total: sum(campanas.gastado) })
+      .from(campanas)
+      .where(
+        and(
+          sql`${campanas.fechaInicio} <= ${fechaHasta}`,
+          sql`${campanas.fechaFin} >= ${fechaDesde}`
+        )
+      );
+
+    return {
+      periodo: {
+        desde: fechaDesde,
+        hasta: fechaHasta
+      },
+      resumenGeneral: {
+        ...metricas,
+        prospectosPeriodo: Number(prospectosPerido?.count || 0),
+        inscritosPeriodo: Number(inscritosPeriodo?.count || 0),
+        gastoCampanas: parseFloat(gastoCampanas?.total?.toString() || '0')
+      },
+      generadoEn: new Date()
+    };
+  }
+
+  // Generar reporte de asesores
+  private async generarReporteAsesores(fechaDesde: Date, fechaHasta: Date, filtros?: any): Promise<any> {
+    const asesores = await db
+      .select({
+        id: users.id,
+        nombre: users.nombre,
+        email: users.email,
+        prospectos: sql`COUNT(DISTINCT ${prospectos.id})`,
+        inscritos: sql`COUNT(DISTINCT CASE WHEN ${prospectos.estatus} = 'inscrito' THEN ${prospectos.id} END)`,
+        comunicaciones: sql`COUNT(DISTINCT ${comunicaciones.id})`,
+        promedioTiempo: sql`AVG(EXTRACT(EPOCH FROM (${prospectos.ultimaInteraccion} - ${prospectos.fechaRegistro})) / 86400)` // días
+      })
+      .from(users)
+      .leftJoin(prospectos, eq(users.id, prospectos.asesorId))
+      .leftJoin(comunicaciones, eq(users.id, comunicaciones.usuarioId))
+      .where(
+        and(
+          eq(users.rol, 'asesor'),
+          filtros?.asesorId ? eq(users.id, filtros.asesorId) : sql`1=1`,
+          sql`${prospectos.fechaRegistro} >= ${fechaDesde}`,
+          sql`${prospectos.fechaRegistro} <= ${fechaHasta}`
+        )
+      )
+      .groupBy(users.id, users.nombre, users.email);
+
+    // Performance comparativa
+    const performance = asesores.map(asesor => ({
+      ...asesor,
+      tasaConversion: Number(asesor.inscritos) / Math.max(Number(asesor.prospectos), 1) * 100,
+      comunicacionesPorProspecto: Number(asesor.comunicaciones) / Math.max(Number(asesor.prospectos), 1),
+      tiempoPromedioConversion: parseFloat(asesor.promedioTiempo?.toString() || '0')
+    }));
+
+    return {
+      periodo: { desde: fechaDesde, hasta: fechaHasta },
+      asesores: performance,
+      resumen: {
+        totalAsesores: asesores.length,
+        mejorAsesor: performance.reduce((best, current) => 
+          current.tasaConversion > best.tasaConversion ? current : best, performance[0]),
+        promedioConversion: performance.reduce((sum, a) => sum + a.tasaConversion, 0) / performance.length
+      },
+      generadoEn: new Date()
+    };
+  }
+
+  // Generar reporte de campañas
+  private async generarReporteCampanas(fechaDesde: Date, fechaHasta: Date, filtros?: any): Promise<any> {
+    const campanasStats = await this.getCampanasStats(
+      fechaDesde.toISOString(),
+      fechaHasta.toISOString(),
+      filtros?.canal
+    );
+
+    // Detalle por campaña
+    const campanasDetalle = await db
+      .select({
+        id: campanas.id,
+        nombre: campanas.nombre,
+        canal: campanas.canal,
+        presupuesto: campanas.presupuesto,
+        gastado: campanas.gastado,
+        estado: campanas.estado,
+        prospectos: sql`COUNT(DISTINCT ${prospectosCampanas.prospectoId})`,
+        inscritos: sql`COUNT(DISTINCT CASE WHEN ${prospectos.estatus} = 'inscrito' THEN ${prospectos.id} END)`
+      })
+      .from(campanas)
+      .leftJoin(prospectosCampanas, eq(campanas.id, prospectosCampanas.campanaId))
+      .leftJoin(prospectos, eq(prospectosCampanas.prospectoId, prospectos.id))
+      .where(
+        and(
+          sql`${campanas.fechaInicio} <= ${fechaHasta}`,
+          sql`${campanas.fechaFin} >= ${fechaDesde}`,
+          filtros?.canal ? eq(campanas.canal, filtros.canal) : sql`1=1`
+        )
+      )
+      .groupBy(campanas.id, campanas.nombre, campanas.canal, campanas.presupuesto, campanas.gastado, campanas.estado);
+
+    return {
+      periodo: { desde: fechaDesde, hasta: fechaHasta },
+      resumenGeneral: campanasStats,
+      detalleCampanas: campanasDetalle.map(campana => ({
+        ...campana,
+        tasaConversion: Number(campana.inscritos) / Math.max(Number(campana.prospectos), 1) * 100,
+        costoProspecto: parseFloat(campana.gastado?.toString() || '0') / Math.max(Number(campana.prospectos), 1),
+        roi: (parseFloat(campana.gastado?.toString() || '0') > 0) ? 
+          (Number(campana.inscritos) * 1000 - parseFloat(campana.gastado?.toString() || '0')) / parseFloat(campana.gastado?.toString() || '1') * 100 : 0
+      })),
+      generadoEn: new Date()
+    };
+  }
+
+  // Generar reporte de conversiones
+  private async generarReporteConversiones(fechaDesde: Date, fechaHasta: Date, filtros?: any): Promise<any> {
+    // Embudo de conversión por estatus
+    const embudo = await db
+      .select({
+        estatus: prospectos.estatus,
+        count: count(),
+        origen: prospectos.origen
+      })
+      .from(prospectos)
+      .where(
+        and(
+          sql`${prospectos.fechaRegistro} >= ${fechaDesde}`,
+          sql`${prospectos.fechaRegistro} <= ${fechaHasta}`
+        )
+      )
+      .groupBy(prospectos.estatus, prospectos.origen);
+
+    // Tiempo promedio por etapa
+    const tiemposPorEtapa = await db
+      .select({
+        estatus: prospectos.estatus,
+        tiempoPromedio: sql`AVG(EXTRACT(EPOCH FROM (${prospectos.ultimaInteraccion} - ${prospectos.fechaRegistro})) / 86400)`
+      })
+      .from(prospectos)
+      .where(
+        and(
+          sql`${prospectos.fechaRegistro} >= ${fechaDesde}`,
+          sql`${prospectos.fechaRegistro} <= ${fechaHasta}`
+        )
+      )
+      .groupBy(prospectos.estatus);
+
+    // Conversiones por origen
+    const conversionesPorOrigen = await db
+      .select({
+        origen: prospectos.origen,
+        total: count(),
+        inscritos: sql`COUNT(CASE WHEN ${prospectos.estatus} = 'inscrito' THEN 1 END)`
+      })
+      .from(prospectos)
+      .where(
+        and(
+          sql`${prospectos.fechaRegistro} >= ${fechaDesde}`,
+          sql`${prospectos.fechaRegistro} <= ${fechaHasta}`
+        )
+      )
+      .groupBy(prospectos.origen);
+
+    return {
+      periodo: { desde: fechaDesde, hasta: fechaHasta },
+      embudoConversion: embudo,
+      tiemposPorEtapa: tiemposPorEtapa.map(t => ({
+        ...t,
+        tiempoPromedio: parseFloat(t.tiempoPromedio?.toString() || '0')
+      })),
+      conversionesPorOrigen: conversionesPorOrigen.map(c => ({
+        ...c,
+        tasaConversion: Number(c.inscritos) / Math.max(Number(c.total), 1) * 100
+      })),
+      generadoEn: new Date()
+    };
+  }
+
+  // Métodos de exportación
+  private async exportarCSV(datos: any, fileName: string): Promise<string> {
+    const reportsDir = path.join(process.cwd(), 'reports');
+    await fs.ensureDir(reportsDir);
+    const filePath = path.join(reportsDir, fileName);
+    
+    if (Array.isArray(datos.asesores) || Array.isArray(datos.detalleCampanas)) {
+      // Para reportes tabulares
+      const records = datos.asesores || datos.detalleCampanas || [];
+      if (records.length > 0) {
+        const headers = Object.keys(records[0]).map(key => ({ id: key, title: key.toUpperCase() }));
+        const csvWriter = createCsvWriter.createObjectCsvWriter({
+          path: filePath,
+          header: headers
+        });
+        await csvWriter.writeRecords(records);
+      }
+    } else {
+      // Para datos no tabulares, crear CSV simple
+      const csvContent = this.objetoACSV(datos);
+      await fs.writeFile(filePath, csvContent, 'utf8');
+    }
+    
+    console.log(`CSV generated: ${filePath}`);
+    return filePath;
+  }
+
+  private async exportarPDF(datos: any, fileName: string, tipoReporte: string): Promise<string> {
+    const reportsDir = path.join(process.cwd(), 'reports');
+    await fs.ensureDir(reportsDir);
+    const filePath = path.join(reportsDir, fileName);
+    
+    const doc = new PDFDocument({ margin: 50 });
+    const stream = fs.createWriteStream(filePath);
+    doc.pipe(stream);
+    
+    // Header
+    doc.fontSize(20).text('Reporte CRM Educativo', { align: 'center' });
+    doc.fontSize(16).text(this.getTituloReporte(tipoReporte), { align: 'center' });
+    doc.moveDown();
+    
+    if (datos.periodo) {
+      doc.fontSize(12).text(`Período: ${new Date(datos.periodo.desde).toLocaleDateString()} - ${new Date(datos.periodo.hasta).toLocaleDateString()}`);
+      doc.moveDown();
+    }
+    
+    // Content based on report type
+    switch (tipoReporte) {
+      case 'ejecutivo':
+        this.escribirReporteEjecutivoPDF(doc, datos);
+        break;
+      case 'asesores':
+        this.escribirReporteAsesoresPDF(doc, datos);
+        break;
+      case 'campanas':
+        this.escribirReporteCampanasPDF(doc, datos);
+        break;
+      default:
+        doc.text('Datos del reporte:', { underline: true });
+        doc.text(JSON.stringify(datos, null, 2));
+    }
+    
+    doc.end();
+    
+    return new Promise((resolve, reject) => {
+      stream.on('finish', () => {
+        console.log(`PDF generated: ${filePath}`);
+        resolve(filePath);
+      });
+      stream.on('error', reject);
+    });
+  }
+
+  private async exportarExcel(datos: any, fileName: string): Promise<string> {
+    const reportsDir = path.join(process.cwd(), 'reports');
+    await fs.ensureDir(reportsDir);
+    const filePath = path.join(reportsDir, fileName);
+    
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'CRM Educativo';
+    workbook.created = new Date();
+    
+    // Crear hoja principal
+    const worksheet = workbook.addWorksheet('Reporte');
+    
+    if (datos.asesores && Array.isArray(datos.asesores)) {
+      // Reporte de asesores
+      const headers = ['Nombre', 'Email', 'Prospectos', 'Inscritos', 'Tasa Conversión %', 'Comunicaciones'];
+      worksheet.addRow(headers);
+      
+      datos.asesores.forEach((asesor: any) => {
+        worksheet.addRow([
+          asesor.nombre,
+          asesor.email,
+          asesor.prospectos,
+          asesor.inscritos,
+          Number(asesor.tasaConversion).toFixed(2),
+          asesor.comunicaciones
+        ]);
+      });
+    } else if (datos.detalleCampanas && Array.isArray(datos.detalleCampanas)) {
+      // Reporte de campañas
+      const headers = ['Nombre', 'Canal', 'Estado', 'Presupuesto', 'Gastado', 'Prospectos', 'Inscritos', 'ROI %'];
+      worksheet.addRow(headers);
+      
+      datos.detalleCampanas.forEach((campana: any) => {
+        worksheet.addRow([
+          campana.nombre,
+          campana.canal,
+          campana.estado,
+          Number(campana.presupuesto),
+          Number(campana.gastado),
+          campana.prospectos,
+          campana.inscritos,
+          Number(campana.roi).toFixed(2)
+        ]);
+      });
+    } else {
+      // Reporte general con resumen
+      worksheet.addRow(['Métrica', 'Valor']);
+      
+      if (datos.resumenGeneral) {
+        const resumen = datos.resumenGeneral;
+        Object.entries(resumen).forEach(([key, value]) => {
+          if (typeof value === 'number' || typeof value === 'string') {
+            worksheet.addRow([key, value]);
+          }
+        });
+      }
+    }
+    
+    // Estilo de headers
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE6F2FF' }
+    };
+    
+    // Auto-resize columns
+    worksheet.columns.forEach(column => {
+      if (column.header) {
+        column.width = Math.max(column.header.length + 2, 12);
+      }
+    });
+    
+    await workbook.xlsx.writeFile(filePath);
+    console.log(`Excel generated: ${filePath}`);
+    return filePath;
+  }
+
+  private objetoACSV(obj: any): string {
+    // Convertir objeto a CSV básico
+    if (Array.isArray(obj)) {
+      if (obj.length === 0) return '';
+      
+      const headers = Object.keys(obj[0]);
+      const csvHeaders = headers.join(',');
+      const csvRows = obj.map(row => 
+        headers.map(header => `"${row[header] || ''}"`).join(',')
+      );
+      
+      return [csvHeaders, ...csvRows].join('\n');
+    }
+    
+    // Para objetos simples
+    const entries = Object.entries(obj);
+    return entries.map(([key, value]) => `"${key}","${value}"`).join('\n');
   }
 }
 
