@@ -36,7 +36,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/prospectos", requireAuth, async (req, res) => {
     try {
-      const { nombre, email, telefono, nivelEducativo, origen, notas } = req.body;
+      const { nombre, email, telefono, nivelEducativo, origen, notas, estatus, prioridad } = req.body;
       
       if (!nombre || !email || !telefono) {
         return res.status(400).json({ error: "Nombre, email y teléfono son requeridos" });
@@ -48,14 +48,150 @@ export async function registerRoutes(app: Express): Promise<Server> {
         telefono,
         nivelEducativo: nivelEducativo || "bachillerato",
         origen: origen || "web",
-        estatus: "contacto_inicial",
+        estatus: estatus || "contacto_inicial",
         asesorId: req.user!.id,
+        prioridad: prioridad || "media",
         notas
       });
       
       res.status(201).json(prospecto);
     } catch (error) {
       console.error("Error creating prospect:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Obtener prospecto individual
+  app.get("/api/prospectos/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const prospecto = await storage.getProspecto(id);
+      
+      if (!prospecto) {
+        return res.status(404).json({ error: "Prospecto no encontrado" });
+      }
+      
+      // Verificar autorización: asesores solo pueden ver sus prospectos
+      if (req.user?.rol === "asesor" && prospecto.asesorId !== req.user.id) {
+        return res.status(403).json({ error: "Acceso denegado" });
+      }
+      
+      res.json(prospecto);
+    } catch (error) {
+      console.error("Error getting prospect:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Actualizar prospecto
+  app.put("/api/prospectos/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { nombre, email, telefono, estatus, prioridad, notas, fechaCita } = req.body;
+      
+      const prospectoExistente = await storage.getProspecto(id);
+      if (!prospectoExistente) {
+        return res.status(404).json({ error: "Prospecto no encontrado" });
+      }
+      
+      // Verificar autorización: asesores solo pueden actualizar sus prospectos
+      if (req.user?.rol === "asesor" && prospectoExistente.asesorId !== req.user.id) {
+        return res.status(403).json({ error: "Acceso denegado" });
+      }
+
+      const updateData: any = {};
+      if (nombre) updateData.nombre = nombre;
+      if (email) updateData.email = email;
+      if (telefono) updateData.telefono = telefono;
+      if (estatus) updateData.estatus = estatus;
+      if (prioridad) updateData.prioridad = prioridad;
+      if (notas) updateData.notas = notas;
+      if (fechaCita) updateData.fechaCita = new Date(fechaCita);
+
+      const prospectoActualizado = await storage.updateProspecto(id, updateData);
+      res.json(prospectoActualizado);
+    } catch (error) {
+      console.error("Error updating prospect:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Eliminar prospecto (solo gerente y director)
+  app.delete("/api/prospectos/:id", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const prospectoExistente = await storage.getProspecto(id);
+      if (!prospectoExistente) {
+        return res.status(404).json({ error: "Prospecto no encontrado" });
+      }
+
+      const eliminado = await storage.deleteProspecto(id);
+      if (eliminado) {
+        res.json({ message: "Prospecto eliminado exitosamente" });
+      } else {
+        res.status(500).json({ error: "No se pudo eliminar el prospecto" });
+      }
+    } catch (error) {
+      console.error("Error deleting prospect:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Asignar prospecto a asesor (solo gerente y director)
+  app.post("/api/prospectos/:id/asignar", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { asesorId } = req.body;
+      
+      if (!asesorId) {
+        return res.status(400).json({ error: "ID de asesor requerido" });
+      }
+
+      const prospectoExistente = await storage.getProspecto(id);
+      if (!prospectoExistente) {
+        return res.status(404).json({ error: "Prospecto no encontrado" });
+      }
+      
+      // Verificar que el asesor existe
+      const asesor = await storage.getUser(asesorId);
+      if (!asesor || asesor.rol !== "asesor") {
+        return res.status(400).json({ error: "Asesor no válido" });
+      }
+
+      const prospectoActualizado = await storage.updateProspecto(id, { asesorId });
+      res.json(prospectoActualizado);
+    } catch (error) {
+      console.error("Error assigning prospect:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Obtener lista de asesores (solo gerente y director)
+  app.get("/api/asesores", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const asesores = await storage.getUsersByRole("asesor");
+      // No incluir contraseñas en la respuesta
+      const asesoresSinPassword = asesores.map(({ password, ...asesor }) => asesor);
+      res.json(asesoresSinPassword);
+    } catch (error) {
+      console.error("Error getting advisors:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Estadísticas de prospectos (para dashboard)
+  app.get("/api/prospectos/stats", requireAuth, async (req, res) => {
+    try {
+      const { asesorId } = req.query;
+      
+      // Si es asesor, solo puede ver sus estadísticas
+      const filtroAsesor = req.user?.rol === "asesor" ? req.user.id : asesorId as string;
+      
+      const stats = await storage.getProspectosStats(filtroAsesor);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error getting prospect stats:", error);
       res.status(500).json({ error: "Error interno del servidor" });
     }
   });

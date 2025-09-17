@@ -34,6 +34,13 @@ export interface IStorage {
     nivelEducativo?: string;
     search?: string;
   }): Promise<Prospecto[]>;
+  getProspectosStats(asesorId?: string): Promise<{
+    total: number;
+    porEstatus: any[];
+    porOrigen: any[];
+    porPrioridad: any[];
+    prospectosMes: number;
+  }>;
   
   // Comunicaciones
   createComunicacion(comunicacion: InsertComunicacion): Promise<Comunicacion>;
@@ -197,6 +204,75 @@ export class DatabaseStorage implements IStorage {
     }
     
     return query.orderBy(desc(prospectos.ultimaInteraccion));
+  }
+
+  async getProspectosStats(asesorId?: string): Promise<{
+    total: number;
+    porEstatus: any[];
+    porOrigen: any[];
+    porPrioridad: any[];
+    prospectosMes: number;
+  }> {
+    const baseCondition = asesorId ? eq(prospectos.asesorId, asesorId) : undefined;
+    const firstOfMonth = new Date();
+    firstOfMonth.setDate(1);
+    firstOfMonth.setHours(0, 0, 0, 0);
+
+    // Total de prospectos
+    let totalQuery = db.select({ count: count() }).from(prospectos);
+    if (baseCondition) {
+      totalQuery = totalQuery.where(baseCondition);
+    }
+    const totalResult = await totalQuery;
+    const total = totalResult[0]?.count || 0;
+
+    // Prospectos por estatus
+    let estatusQuery = db.select({
+      estatus: prospectos.estatus,
+      count: count()
+    }).from(prospectos);
+    if (baseCondition) {
+      estatusQuery = estatusQuery.where(baseCondition);
+    }
+    const porEstatus = await estatusQuery.groupBy(prospectos.estatus);
+
+    // Prospectos por origen
+    let origenQuery = db.select({
+      origen: prospectos.origen,
+      count: count()
+    }).from(prospectos);
+    if (baseCondition) {
+      origenQuery = origenQuery.where(baseCondition);
+    }
+    const porOrigen = await origenQuery.groupBy(prospectos.origen);
+
+    // Prospectos por prioridad
+    let prioridadQuery = db.select({
+      prioridad: prospectos.prioridad,
+      count: count()
+    }).from(prospectos);
+    if (baseCondition) {
+      prioridadQuery = prioridadQuery.where(baseCondition);
+    }
+    const porPrioridad = await prioridadQuery.groupBy(prospectos.prioridad);
+
+    // Prospectos del mes actual
+    let mesQuery = db.select({ count: count() }).from(prospectos);
+    const mesConditions = [sql`${prospectos.fechaRegistro} >= ${firstOfMonth}`];
+    if (baseCondition) {
+      mesConditions.push(baseCondition);
+    }
+    mesQuery = mesQuery.where(and(...mesConditions));
+    const mesResult = await mesQuery;
+    const prospectosMes = mesResult[0]?.count || 0;
+
+    return {
+      total: Number(total),
+      porEstatus: porEstatus.map(e => ({ estatus: e.estatus, count: Number(e.count) })),
+      porOrigen: porOrigen.map(o => ({ origen: o.origen, count: Number(o.count) })),
+      porPrioridad: porPrioridad.map(p => ({ prioridad: p.prioridad, count: Number(p.count) })),
+      prospectosMes: Number(prospectosMes)
+    };
   }
 
   // Métodos de comunicaciones
