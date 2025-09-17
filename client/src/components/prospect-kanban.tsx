@@ -52,10 +52,16 @@ interface Prospecto {
   origen: string;
   estatus: string;
   prioridad: string;
-  asesorId?: string;
-  fechaRegistro: string;
-  ultimaInteraccion?: string;
-  notas?: string;
+  asesorId: string | null;
+  fechaRegistro: Date | null;
+  ultimaInteraccion: Date | null;
+  notas: string | null;
+  valorInscripcion: string | null;
+  fechaCita: Date | null;
+  datosAdicionales: any;
+  programaInteres: string | null;
+  consentimientoDatos: boolean;
+  fuenteOrigen: string | null;
 }
 
 interface ProspectCardProps {

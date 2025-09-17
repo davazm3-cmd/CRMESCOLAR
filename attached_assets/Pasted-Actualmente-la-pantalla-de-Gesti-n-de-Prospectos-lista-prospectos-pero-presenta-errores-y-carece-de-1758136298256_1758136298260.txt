@@ -1,0 +1,73 @@
+Actualmente, la pantalla de Gestión de Prospectos lista prospectos pero presenta errores y carece de funciones críticas.
+
+Problema detectado
+
+El botón “Nuevo Prospecto” no funciona: al dar clic no abre el formulario ni guarda datos.
+
+El módulo solo lista prospectos, pero no permite registrar interacciones, tareas ni consentimiento de datos.
+
+Tareas a realizar
+
+Arreglar el botón “Nuevo Prospecto”
+
+Debe abrir un formulario modal o nueva vista.
+
+El formulario debe incluir:
+
+Nombre completo
+
+Email
+
+Teléfono
+
+Programa de interés
+
+Fuente de origen (ej. formulario web, feria, redes sociales)
+
+Checkbox de consentimiento de datos (obligatorio para guardar).
+
+Guardar prospecto en la base de datos
+
+Al enviar el formulario, el prospecto debe guardarse en la Database de Replit.
+
+Validar campos obligatorios (nombre, email, consentimiento).
+
+Agregar gestión de tareas y recordatorios
+
+Dentro de cada prospecto, debe poderse asignar tareas (ej. “Llamar en 24h”).
+
+Tareas con fecha límite y estado (pendiente, completada).
+
+Las tareas deben aparecer en el perfil del prospecto y en un listado de tareas globales.
+
+Historial de interacciones
+
+Permitir registrar interacciones simples: llamada, email enviado, reunión.
+
+Cada interacción queda guardada con fecha y responsable.
+
+Seguridad y cumplimiento
+
+El consentimiento de datos debe ser obligatorio para guardar prospectos.
+
+Mostrar un aviso simple: “Acepto que mis datos sean tratados de acuerdo con la política de privacidad”.
+
+Requisitos técnicos
+
+Código en inglés (variables, funciones).
+
+Interfaz en español (etiquetas y mensajes).
+
+Usar Database de Replit para guardar prospectos, tareas e interacciones.
+
+Arquitectura modular para escalar funciones después.
+
+Criterios de Calidad
+
+El botón “Nuevo Prospecto” debe abrir siempre un formulario funcional.
+
+Todo prospecto nuevo debe guardarse con un campo de consentimiento.
+
+Cada prospecto debe tener su perfil con tareas e historial de interacciones.
+
+El flujo debe ser intuitivo y usable por asesores de admisión.
