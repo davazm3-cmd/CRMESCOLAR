@@ -17,8 +17,17 @@ import {
   GraduationCap,
   TrendingUp,
   UserCheck,
-  FileCheck
+  FileCheck,
+  X,
+  AlertCircle
 } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { insertProspectoSchema, type InsertProspecto } from "@shared/schema";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -60,8 +69,60 @@ export function ProspectManager() {
     return matchesSearch && matchesStatus;
   });
 
+  // Estado para el modal de nuevo prospecto
+  const [showNewProspectModal, setShowNewProspectModal] = useState(false);
+
+  // Formulario para nuevo prospecto
+  const newProspectForm = useForm<InsertProspecto>({
+    resolver: zodResolver(insertProspectoSchema),
+    defaultValues: {
+      nombre: "",
+      email: "",
+      telefono: "",
+      nivelEducativo: "universidad",
+      origen: "formulario_web",
+      programaInteres: "",
+      fuenteOrigen: undefined,
+      estatus: "nuevo",
+      prioridad: "media",
+      consentimientoDatos: false,
+      notas: undefined
+    }
+  });
+
+  // Mutation para crear nuevo prospecto
+  const createProspectMutation = useMutation({
+    mutationFn: (data: InsertProspecto) => 
+      apiRequest('POST', '/api/prospectos', data),
+    onSuccess: () => {
+      toast({
+        title: "Prospecto creado",
+        description: "El nuevo prospecto ha sido registrado exitosamente.",
+      });
+      setShowNewProspectModal(false);
+      newProspectForm.reset();
+      queryClient.invalidateQueries({ queryKey: ["/api/prospectos"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Error al crear el prospecto.",
+        variant: "destructive",
+      });
+    }
+  });
+
   const handleAddProspect = () => {
-    console.log("Agregando nuevo prospecto");
+    setShowNewProspectModal(true);
+  };
+
+  const handleSubmitNewProspect = (data: InsertProspecto) => {
+    createProspectMutation.mutate(data);
+  };
+
+  const handleCloseModal = () => {
+    setShowNewProspectModal(false);
+    newProspectForm.reset();
   };
 
   const handleExportData = () => {
@@ -377,6 +438,271 @@ export function ProspectManager() {
           </CardContent>
         </Card>
       )}
+
+      {/* Modal para Nuevo Prospecto */}
+      <Dialog open={showNewProspectModal} onOpenChange={setShowNewProspectModal}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5" />
+              Registrar Nuevo Prospecto
+            </DialogTitle>
+            <DialogDescription>
+              Complete la información del prospecto. El consentimiento de datos es obligatorio.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Form {...newProspectForm}>
+            <form onSubmit={newProspectForm.handleSubmit(handleSubmitNewProspect)} className="space-y-4">
+              {/* Datos personales */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={newProspectForm.control}
+                  name="nombre"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nombre Completo *</FormLabel>
+                      <FormControl>
+                        <Input 
+                          placeholder="Ingrese el nombre completo"
+                          {...field} 
+                          data-testid="input-nombre-prospecto"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={newProspectForm.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email *</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="email"
+                          placeholder="ejemplo@correo.com"
+                          {...field} 
+                          data-testid="input-email-prospecto"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={newProspectForm.control}
+                  name="telefono"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Teléfono *</FormLabel>
+                      <FormControl>
+                        <Input 
+                          placeholder="555-123-4567"
+                          {...field} 
+                          data-testid="input-telefono-prospecto"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={newProspectForm.control}
+                  name="nivelEducativo"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nivel Educativo</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-nivel-educativo">
+                            <SelectValue placeholder="Seleccionar nivel" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="primaria">Primaria</SelectItem>
+                          <SelectItem value="secundaria">Secundaria</SelectItem>
+                          <SelectItem value="preparatoria">Preparatoria</SelectItem>
+                          <SelectItem value="universidad">Universidad</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* Información académica */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={newProspectForm.control}
+                  name="programaInteres"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Programa de Interés</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-programa-interes">
+                            <SelectValue placeholder="Seleccionar programa" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="ingenieria_sistemas">Ingeniería en Sistemas</SelectItem>
+                          <SelectItem value="administracion">Administración de Empresas</SelectItem>
+                          <SelectItem value="medicina">Medicina</SelectItem>
+                          <SelectItem value="derecho">Derecho</SelectItem>
+                          <SelectItem value="psicologia">Psicología</SelectItem>
+                          <SelectItem value="contaduria">Contaduría Pública</SelectItem>
+                          <SelectItem value="marketing">Marketing Digital</SelectItem>
+                          <SelectItem value="arquitectura">Arquitectura</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={newProspectForm.control}
+                  name="origen"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Fuente de Origen</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-origen">
+                            <SelectValue placeholder="Seleccionar fuente" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="formulario_web">Formulario Web</SelectItem>
+                          <SelectItem value="facebook">Facebook</SelectItem>
+                          <SelectItem value="google">Google Ads</SelectItem>
+                          <SelectItem value="referencias">Referencias</SelectItem>
+                          <SelectItem value="eventos">Ferias Educativas</SelectItem>
+                          <SelectItem value="telefono">Llamada Directa</SelectItem>
+                          <SelectItem value="redes_sociales">Redes Sociales</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* Detalle de fuente */}
+              <FormField
+                control={newProspectForm.control}
+                name="fuenteOrigen"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Detalle de la Fuente</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Ej: 'Feria UAM 2024', 'Campaña Facebook Carreras', 'Referido por Juan Pérez'"
+                        {...field} 
+                        data-testid="input-fuente-origen"
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Agregue detalles específicos sobre cómo conoció la institución
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Notas */}
+              <FormField
+                control={newProspectForm.control}
+                name="notas"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notas Adicionales</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Comentarios o información relevante..."
+                        {...field} 
+                        data-testid="input-notas-prospecto"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Consentimiento obligatorio */}
+              <div className="border rounded-lg p-4 bg-muted/20">
+                <FormField
+                  control={newProspectForm.control}
+                  name="consentimientoDatos"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          data-testid="checkbox-consentimiento"
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel className="text-sm font-normal cursor-pointer">
+                          <div className="flex items-center gap-2">
+                            <AlertCircle className="h-4 w-4 text-destructive" />
+                            Consentimiento de Datos (Obligatorio)
+                          </div>
+                        </FormLabel>
+                        <FormDescription className="text-xs">
+                          Acepto que mis datos personales sean tratados de acuerdo con la{" "}
+                          <span className="text-primary underline cursor-pointer">
+                            política de privacidad
+                          </span>
+                          {" "}de la institución para fines educativos y de admisión.
+                        </FormDescription>
+                        <FormMessage />
+                      </div>
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <DialogFooter>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={handleCloseModal}
+                  data-testid="button-cancel-prospecto"
+                >
+                  Cancelar
+                </Button>
+                <Button 
+                  type="submit"
+                  disabled={createProspectMutation.isPending}
+                  data-testid="button-save-prospecto"
+                >
+                  {createProspectMutation.isPending ? (
+                    <>
+                      <Calendar className="mr-2 h-4 w-4 animate-spin" />
+                      Guardando...
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="mr-2 h-4 w-4" />
+                      Registrar Prospecto
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

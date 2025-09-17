@@ -104,8 +104,9 @@ function ProspectCard({ prospecto, isDragging = false }: ProspectCardProps) {
     return <GraduationCap className="h-4 w-4" />;
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('es-MX', {
+  const formatDate = (dateString: string | Date) => {
+    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
+    return date.toLocaleDateString('es-MX', {
       day: '2-digit',
       month: '2-digit',
       year: '2-digit'
@@ -159,7 +160,7 @@ function ProspectCard({ prospecto, isDragging = false }: ProspectCardProps) {
               {prospecto.origen}
             </Badge>
             <span className="text-xs text-muted-foreground">
-              {formatDate(prospecto.fechaRegistro)}
+              {prospecto.fechaRegistro ? formatDate(prospecto.fechaRegistro) : 'N/A'}
             </span>
           </div>
 
