@@ -11,85 +11,117 @@ import {
   Phone,
   Mail,
   MessageCircle,
-  Calendar
+  Calendar,
+  List,
+  LayoutGrid,
+  GraduationCap,
+  TrendingUp,
+  UserCheck
 } from "lucide-react";
 import { useState } from "react";
+import { ProspectKanban } from "./prospect-kanban";
 
 //todo: remove mock data functionality
 const allProspects = [
   {
-    id: 1,
+    id: "1",
     nombre: "Ana Patricia Jiménez",
     telefono: "+52 55 1234-5678",
     email: "ana.jimenez@email.com",
     nivelEducativo: "Preparatoria",
     origen: "Facebook Ads",
-    estatus: "Cita Agendada",
+    estatus: "cita_agendada",
     asesor: "María García",
+    asesorId: "maria_garcia",
+    prioridad: "alta",
     fechaRegistro: "2024-01-10",
-    ultimaInteraccion: "2024-01-14"
+    ultimaInteraccion: "2024-01-14",
+    notas: "Interesada en programa de preparatoria en línea"
   },
   {
-    id: 2,
+    id: "2",
     nombre: "Carlos Eduardo Mendoza",
     telefono: "+52 55 9876-5432",
     email: "carlos.mendoza@email.com",
     nivelEducativo: "Universidad",
     origen: "Google Ads",
-    estatus: "Seguimiento",
+    estatus: "primer_contacto",
     asesor: "Carlos López",
+    asesorId: "carlos_lopez",
+    prioridad: "media",
     fechaRegistro: "2024-01-11",
-    ultimaInteraccion: "2024-01-13"
+    ultimaInteraccion: "2024-01-13",
+    notas: "Busca programa de ingeniería"
   },
   {
-    id: 3,
+    id: "3",
     nombre: "María Elena Vásquez",
     telefono: "+52 55 5555-1111",
     email: "maria.vasquez@email.com",
     nivelEducativo: "Secundaria",
     origen: "Referencias",
-    estatus: "Primer Contacto",
+    estatus: "nuevo",
     asesor: "Ana Martínez",
+    asesorId: "ana_martinez",
+    prioridad: "baja",
     fechaRegistro: "2024-01-12",
-    ultimaInteraccion: "2024-01-12"
+    ultimaInteraccion: "2024-01-12",
+    notas: "Referida por cliente actual"
   },
   {
-    id: 4,
+    id: "4",
     nombre: "Roberto Silva Morales",
     telefono: "+52 55 7777-8888",
     email: "roberto.silva@email.com",
     nivelEducativo: "Universidad",
     origen: "Redes Sociales",
-    estatus: "Inscrito",
+    estatus: "matriculado",
     asesor: "Luis Rodríguez",
+    asesorId: "luis_rodriguez",
+    prioridad: "alta",
     fechaRegistro: "2024-01-05",
-    ultimaInteraccion: "2024-01-14"
+    ultimaInteraccion: "2024-01-14",
+    notas: "Matriculado en programa de administración"
   },
   {
-    id: 5,
+    id: "5",
     nombre: "Sofía Hernández López",
     telefono: "+52 55 3333-2222",
     email: "sofia.hernandez@email.com",
     nivelEducativo: "Preparatoria",
     origen: "Eventos",
-    estatus: "No Interesado",
+    estatus: "documentos",
     asesor: "María García",
+    asesorId: "maria_garcia",
+    prioridad: "media",
     fechaRegistro: "2024-01-08",
-    ultimaInteraccion: "2024-01-10"
+    ultimaInteraccion: "2024-01-10",
+    notas: "En proceso de documentación"
   }
 ];
 
 export function ProspectManager() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("Todos");
-  const [selectedProspects, setSelectedProspects] = useState<number[]>([]);
+  const [selectedProspects, setSelectedProspects] = useState<string[]>([]);
+  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
 
-  const statusOptions = ["Todos", "Primer Contacto", "Seguimiento", "Cita Agendada", "Inscrito", "No Interesado"];
+  const statusOptions = ["Todos", "Nuevo", "Primer Contacto", "Cita Agendada", "Documentos", "Admitido", "Matriculado"];
+
+  // Mapear nombres de estatus para display
+  const statusDisplayMap = {
+    "nuevo": "Nuevo",
+    "primer_contacto": "Primer Contacto",
+    "cita_agendada": "Cita Agendada",
+    "documentos": "Documentos",
+    "admitido": "Admitido",
+    "matriculado": "Matriculado"
+  } as const;
 
   const filteredProspects = allProspects.filter(prospect => {
     const matchesSearch = prospect.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          prospect.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = filterStatus === "Todos" || prospect.estatus === filterStatus;
+    const matchesStatus = filterStatus === "Todos" || statusDisplayMap[prospect.estatus as keyof typeof statusDisplayMap] === filterStatus;
     return matchesSearch && matchesStatus;
   });
 
@@ -101,7 +133,7 @@ export function ProspectManager() {
     console.log("Exportando datos de prospectos");
   };
 
-  const handleContactProspect = (prospectId: number, method: string) => {
+  const handleContactProspect = (prospectId: string, method: string) => {
     console.log(`Contactando prospecto ${prospectId} via ${method}`);
   };
 
@@ -109,7 +141,7 @@ export function ProspectManager() {
     console.log(`Acción masiva: ${action} en prospectos:`, selectedProspects);
   };
 
-  const toggleProspectSelection = (prospectId: number) => {
+  const toggleProspectSelection = (prospectId: string) => {
     setSelectedProspects(prev => 
       prev.includes(prospectId) 
         ? prev.filter(id => id !== prospectId)
@@ -144,6 +176,27 @@ export function ProspectManager() {
           </p>
         </div>
         <div className="flex gap-2">
+          {/* Toggle de vista */}
+          <div className="flex bg-muted rounded-lg p-1">
+            <Button
+              variant={viewMode === 'list' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('list')}
+              data-testid="button-view-list"
+            >
+              <List className="h-4 w-4 mr-1" />
+              Lista
+            </Button>
+            <Button
+              variant={viewMode === 'kanban' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('kanban')}
+              data-testid="button-view-kanban"
+            >
+              <LayoutGrid className="h-4 w-4 mr-1" />
+              Tablero
+            </Button>
+          </div>
           <Button 
             variant="outline"
             onClick={handleExportData}
@@ -242,94 +295,127 @@ export function ProspectManager() {
         </Card>
       )}
 
-      {/* Lista de Prospectos */}
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            Prospectos ({filteredProspects.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {filteredProspects.map((prospect) => (
-              <div 
-                key={prospect.id} 
-                className={`p-4 border rounded-lg hover-elevate ${
-                  selectedProspects.includes(prospect.id) ? 'ring-2 ring-primary' : ''
-                }`}
-                data-testid={`card-prospect-${prospect.id}`}
-              >
-                <div className="flex items-center gap-4">
-                  <input
-                    type="checkbox"
-                    checked={selectedProspects.includes(prospect.id)}
-                    onChange={() => toggleProspectSelection(prospect.id)}
-                    className="h-4 w-4"
-                    data-testid={`checkbox-prospect-${prospect.id}`}
-                  />
-                  
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <h4 className="font-medium">{prospect.nombre}</h4>
-                      <Badge 
-                        variant="outline" 
-                        className={getStatusColor(prospect.estatus)}
-                      >
-                        {prospect.estatus}
-                      </Badge>
+      {/* Vista condicional: Lista o Kanban */}
+      {viewMode === 'list' ? (
+        /* Vista Lista */
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              Prospectos ({filteredProspects.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {filteredProspects.map((prospect) => (
+                <div 
+                  key={prospect.id} 
+                  className={`p-4 border rounded-lg hover-elevate ${
+                    selectedProspects.includes(prospect.id) ? 'ring-2 ring-primary' : ''
+                  }`}
+                  data-testid={`card-prospect-${prospect.id}`}
+                >
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedProspects.includes(prospect.id)}
+                      onChange={() => toggleProspectSelection(prospect.id)}
+                      className="h-4 w-4"
+                      data-testid={`checkbox-prospect-${prospect.id}`}
+                    />
+                    
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h4 className="font-medium">{prospect.nombre}</h4>
+                        <Badge 
+                          variant="outline" 
+                          className={getStatusColor(statusDisplayMap[prospect.estatus as keyof typeof statusDisplayMap])}
+                        >
+                          {statusDisplayMap[prospect.estatus as keyof typeof statusDisplayMap]}
+                        </Badge>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-muted-foreground">
+                        <div>
+                          <p className="flex items-center gap-2">
+                            <Phone className="h-3 w-3" />
+                            {prospect.telefono}
+                          </p>
+                          <p className="flex items-center gap-2">
+                            <Mail className="h-3 w-3" />
+                            {prospect.email}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="flex items-center gap-2">
+                            <GraduationCap className="h-3 w-3" />
+                            {prospect.nivelEducativo}
+                          </p>
+                          <p className="flex items-center gap-2">
+                            <TrendingUp className="h-3 w-3" />
+                            Origen: {prospect.origen}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="flex items-center gap-2">
+                            <UserCheck className="h-3 w-3" />
+                            Asesor: {prospect.asesor}
+                          </p>
+                          <p className="flex items-center gap-2">
+                            <Calendar className="h-3 w-3" />
+                            Registro: {prospect.fechaRegistro}
+                          </p>
+                        </div>
+                      </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-muted-foreground">
-                      <div>
-                        <p>📞 {prospect.telefono}</p>
-                        <p>✉️ {prospect.email}</p>
-                      </div>
-                      <div>
-                        <p>🎓 {prospect.nivelEducativo}</p>
-                        <p>📈 Origen: {prospect.origen}</p>
-                      </div>
-                      <div>
-                        <p>👨‍💼 Asesor: {prospect.asesor}</p>
-                        <p>📅 Registro: {prospect.fechaRegistro}</p>
-                      </div>
+                    <div className="flex flex-col gap-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => handleContactProspect(prospect.id, "phone")}
+                        data-testid={`button-call-prospect-${prospect.id}`}
+                      >
+                        <Phone className="h-4 w-4 mr-1" />
+                        Llamar
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => handleContactProspect(prospect.id, "whatsapp")}
+                        data-testid={`button-whatsapp-prospect-${prospect.id}`}
+                      >
+                        <MessageCircle className="h-4 w-4 mr-1" />
+                        WhatsApp
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => handleContactProspect(prospect.id, "email")}
+                        data-testid={`button-email-prospect-${prospect.id}`}
+                      >
+                        <Mail className="h-4 w-4 mr-1" />
+                        Email
+                      </Button>
                     </div>
                   </div>
-                  
-                  <div className="flex flex-col gap-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => handleContactProspect(prospect.id, "phone")}
-                      data-testid={`button-call-prospect-${prospect.id}`}
-                    >
-                      <Phone className="h-4 w-4 mr-1" />
-                      Llamar
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => handleContactProspect(prospect.id, "whatsapp")}
-                      data-testid={`button-whatsapp-prospect-${prospect.id}`}
-                    >
-                      <MessageCircle className="h-4 w-4 mr-1" />
-                      WhatsApp
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => handleContactProspect(prospect.id, "email")}
-                      data-testid={`button-email-prospect-${prospect.id}`}
-                    >
-                      <Mail className="h-4 w-4 mr-1" />
-                      Email
-                    </Button>
-                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        /* Vista Kanban */
+        <Card className="h-[calc(100vh-300px)]">
+          <CardHeader>
+            <CardTitle>
+              Pipeline de Prospectos ({filteredProspects.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="h-full">
+            <ProspectKanban className="h-full" prospects={filteredProspects} />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
