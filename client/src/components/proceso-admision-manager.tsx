@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,9 +11,13 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
-import { FileText, Upload, CreditCard, GraduationCap, CheckCircle, AlertCircle, Clock, Users } from "lucide-react";
-import type { Prospecto, DocumentoAdmision, Pago } from "@shared/schema";
+import { FileText, Upload, CreditCard, GraduationCap, CheckCircle, AlertCircle, Clock, Users, Circle } from "lucide-react";
+import type { Prospecto, DocumentoAdmision, Pago, Estudiante } from "@shared/schema";
+import { updateDatosAcademicosSchema } from "@shared/schema";
+import { z } from "zod";
 
 // Estados del proceso de admisión
 const ESTADOS_ADMISION = {
@@ -39,6 +45,34 @@ export function ProcesoAdmisionManager({ prospecto }: ProcesoAdmisionManagerProp
     queryKey: ['/api/prospectos', prospecto.id, 'pagos'],
     enabled: !!prospecto.id
   });
+
+  // Query para obtener datos del estudiante (si existe)
+  const { data: estudiante, isLoading: loadingEstudiante, refetch: refetchEstudiante } = useQuery<Estudiante>({
+    queryKey: ['/api/estudiantes', 'por-prospecto', prospecto.id],
+    enabled: !!prospecto.id && prospecto.estatus === 'matriculado'
+  });
+
+  // Form para datos académicos
+  type FormData = z.infer<typeof updateDatosAcademicosSchema>;
+  const form = useForm<FormData>({
+    resolver: zodResolver(updateDatosAcademicosSchema),
+    defaultValues: {
+      programa: estudiante?.programa || "",
+      modalidad: estudiante?.modalidad || "presencial",
+      turno: estudiante?.turno || "matutino", 
+      fechaInicio: estudiante?.fechaInicio ? new Date(estudiante.fechaInicio) : new Date(),
+    },
+  });
+
+  // Reset form when estudiante data changes
+  if (estudiante && !form.formState.isDirty) {
+    form.reset({
+      programa: estudiante.programa || "",
+      modalidad: estudiante.modalidad || "presencial",
+      turno: estudiante.turno || "matutino",
+      fechaInicio: estudiante.fechaInicio ? new Date(estudiante.fechaInicio) : new Date(),
+    });
+  }
 
   // Mutations
   const iniciarAdmisionMutation = useMutation({
@@ -107,6 +141,7 @@ export function ProcesoAdmisionManager({ prospecto }: ProcesoAdmisionManagerProp
         description: "El estudiante ha sido matriculado exitosamente.",
       });
       queryClient.invalidateQueries({ queryKey: ['/api/prospectos'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/estudiantes', 'por-prospecto', prospecto.id] });
     },
     onError: () => {
       toast({
@@ -117,9 +152,41 @@ export function ProcesoAdmisionManager({ prospecto }: ProcesoAdmisionManagerProp
     }
   });
 
+  // Mutation para actualizar datos académicos
+  const updateDatosAcademicosMutation = useMutation({
+    mutationFn: (data: FormData) => {
+      if (!estudiante?.id) {
+        throw new Error("No se pudo encontrar el ID del estudiante");
+      }
+      return apiRequest('PATCH', `/api/estudiantes/${estudiante.id}/datos-academicos`, data);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Datos actualizados",
+        description: "Los datos académicos han sido actualizados exitosamente.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/estudiantes', 'por-prospecto', prospecto.id] });
+      queryClient.invalidateQueries({ queryKey: ['/api/estudiantes'] });
+      refetchEstudiante();
+    },
+    onError: (error: any) => {
+      console.error("Error updating academic data:", error);
+      toast({
+        title: "Error",
+        description: error.response?.data?.error || "Error al actualizar los datos académicos.",
+        variant: "destructive",
+      });
+    }
+  });
+
   // Handlers
   const handleIniciarAdmision = () => {
     iniciarAdmisionMutation.mutate();
+  };
+
+  // Submit handler para datos académicos
+  const onSubmitDatosAcademicos = (data: FormData) => {
+    updateDatosAcademicosMutation.mutate(data);
   };
 
   const handleSubirDocumento = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -569,19 +636,201 @@ export function ProcesoAdmisionManager({ prospecto }: ProcesoAdmisionManagerProp
               </CardHeader>
               <CardContent>
                 {prospecto.estatus === 'matriculado' ? (
-                  <div className="text-center py-8">
-                    <CheckCircle className="mx-auto h-12 w-12 text-green-600 mb-4" />
-                    <h3 className="text-lg font-semibold text-green-600 mb-2">
-                      ¡Estudiante Matriculado!
-                    </h3>
-                    <p className="text-muted-foreground">
-                      {prospecto.nombre} ha completado exitosamente el proceso de admisión y está matriculado.
-                    </p>
+                  <div className="space-y-6">
+                    {/* Estado de matriculación */}
+                    <div className="text-center py-6 border rounded-lg bg-green-50 dark:bg-green-900/10">
+                      <CheckCircle className="mx-auto h-10 w-10 text-green-600 mb-3" />
+                      <h3 className="text-lg font-semibold text-green-600 mb-1">
+                        ¡Estudiante Matriculado!
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        Proceso de admisión completado exitosamente
+                      </p>
+                    </div>
+
+                    {/* Formulario funcional para completar datos académicos */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Datos Académicos</CardTitle>
+                        <CardDescription>
+                          Complete la información académica del estudiante
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        {loadingEstudiante ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Clock className="h-6 w-6 animate-spin mr-2" />
+                            <span>Cargando datos del estudiante...</span>
+                          </div>
+                        ) : (
+                          <Form {...form}>
+                            <form onSubmit={form.handleSubmit(onSubmitDatosAcademicos)} className="space-y-6">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <FormField
+                                  control={form.control}
+                                  name="programa"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>Programa Académico</FormLabel>
+                                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl>
+                                          <SelectTrigger data-testid="select-programa">
+                                            <SelectValue placeholder="Seleccionar programa" />
+                                          </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                          <SelectItem value="ingenieria_sistemas">Ingeniería en Sistemas</SelectItem>
+                                          <SelectItem value="administracion">Administración de Empresas</SelectItem>
+                                          <SelectItem value="medicina">Medicina</SelectItem>
+                                          <SelectItem value="derecho">Derecho</SelectItem>
+                                          <SelectItem value="psicologia">Psicología</SelectItem>
+                                          <SelectItem value="contaduria">Contaduría Pública</SelectItem>
+                                          <SelectItem value="ingenieria_industrial">Ingeniería Industrial</SelectItem>
+                                          <SelectItem value="marketing">Marketing</SelectItem>
+                                          <SelectItem value="enfermeria">Enfermería</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      <FormMessage data-testid="error-programa" />
+                                    </FormItem>
+                                  )}
+                                />
+                                
+                                <FormField
+                                  control={form.control}
+                                  name="modalidad"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>Modalidad de Estudio</FormLabel>
+                                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl>
+                                          <SelectTrigger data-testid="select-modalidad">
+                                            <SelectValue placeholder="Seleccionar modalidad" />
+                                          </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                          <SelectItem value="presencial">Presencial</SelectItem>
+                                          <SelectItem value="virtual">Virtual</SelectItem>
+                                          <SelectItem value="hibrida">Híbrida</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      <FormMessage data-testid="error-modalidad" />
+                                    </FormItem>
+                                  )}
+                                />
+                                
+                                <FormField
+                                  control={form.control}
+                                  name="fechaInicio"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>Fecha de Inicio Prevista</FormLabel>
+                                      <FormControl>
+                                        <Input 
+                                          type="date" 
+                                          data-testid="input-fecha-inicio"
+                                          value={field.value ? field.value.toISOString().split('T')[0] : ''}
+                                          onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : new Date())}
+                                        />
+                                      </FormControl>
+                                      <FormMessage data-testid="error-fecha-inicio" />
+                                    </FormItem>
+                                  )}
+                                />
+                                
+                                <FormField
+                                  control={form.control}
+                                  name="turno"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>Turno</FormLabel>
+                                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl>
+                                          <SelectTrigger data-testid="select-turno">
+                                            <SelectValue placeholder="Seleccionar turno" />
+                                          </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                          <SelectItem value="matutino">Matutino</SelectItem>
+                                          <SelectItem value="vespertino">Vespertino</SelectItem>
+                                          <SelectItem value="nocturno">Nocturno</SelectItem>
+                                          <SelectItem value="mixto">Mixto</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      <FormMessage data-testid="error-turno" />
+                                    </FormItem>
+                                  )}
+                                />
+                              </div>
+                              
+                              <div className="flex justify-end">
+                                <Button 
+                                  type="submit" 
+                                  disabled={updateDatosAcademicosMutation.isPending}
+                                  data-testid="button-actualizar-datos-academicos"
+                                >
+                                  {updateDatosAcademicosMutation.isPending ? (
+                                    <>
+                                      <Clock className="mr-2 h-4 w-4 animate-spin" />
+                                      Actualizando...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <FileText className="mr-2 h-4 w-4" />
+                                      Actualizar Datos Académicos
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                            </form>
+                          </Form>
+                        )}
+                      </CardContent>
+                    </Card>
                   </div>
                 ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Users className="mx-auto h-8 w-8 mb-2 opacity-50" />
-                    El prospecto aún no ha sido matriculado
+                  <div className="text-center py-8">
+                    <div className="mb-4">
+                      <Users className="mx-auto h-12 w-12 mb-3 text-muted-foreground/50" />
+                      <h4 className="font-semibold mb-2">Proceso de Matriculación</h4>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Para matricular al estudiante, complete estos pasos:
+                      </p>
+                    </div>
+                    
+                    {/* Lista de prerrequisitos */}
+                    <div className="max-w-md mx-auto space-y-2">
+                      <div className="flex items-center gap-2 text-sm">
+                        {documentos.length > 0 ? 
+                          <CheckCircle className="h-4 w-4 text-green-600" /> : 
+                          <Circle className="h-4 w-4 text-muted-foreground" />
+                        }
+                        <span>Documentos cargados</span>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 text-sm">
+                        {pagos.some(p => p.estado === 'completado') ? 
+                          <CheckCircle className="h-4 w-4 text-green-600" /> : 
+                          <Circle className="h-4 w-4 text-muted-foreground" />
+                        }
+                        <span>Pago completado</span>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 text-sm">
+                        {prospecto.estatus === 'admitido' ? 
+                          <CheckCircle className="h-4 w-4 text-green-600" /> : 
+                          <Circle className="h-4 w-4 text-muted-foreground" />
+                        }
+                        <span>Prospecto admitido</span>
+                      </div>
+                    </div>
+                    
+                    {prospecto.estatus !== 'admitido' && (
+                      <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-900/10 rounded-lg">
+                        <p className="text-sm text-amber-700 dark:text-amber-300">
+                          Complete los pasos del proceso de admisión para poder matricular al estudiante.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>

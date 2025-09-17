@@ -301,6 +301,7 @@ export const estudiantes = pgTable("estudiantes", {
   nivelEducativo: text("nivel_educativo").notNull(),
   programa: text("programa").notNull(),
   modalidad: text("modalidad").notNull(), // 'presencial', 'virtual', 'hibrida'
+  turno: text("turno").notNull(), // 'matutino', 'vespertino', 'nocturno', 'mixto'
   fechaInicio: timestamp("fecha_inicio").notNull(),
   fechaMatricula: timestamp("fecha_matricula").defaultNow(),
   estado: text("estado").notNull().default('activo'), // 'activo', 'suspendido', 'graduado', 'retirado'
@@ -425,7 +426,22 @@ export const insertEstudianteSchema = createInsertSchema(estudiantes).omit({
 }).extend({
   nivelEducativo: z.enum(["primaria", "secundaria", "preparatoria", "universidad"]),
   modalidad: z.enum(["presencial", "virtual", "hibrida"]),
+  turno: z.enum(["matutino", "vespertino", "nocturno", "mixto"]),
   estado: z.enum(["activo", "suspendido", "graduado", "retirado"]).optional(),
+});
+
+// Schema específico para actualización de datos académicos
+export const updateDatosAcademicosSchema = z.object({
+  programa: z.string().min(1, "Programa académico es requerido"),
+  modalidad: z.enum(["presencial", "virtual", "hibrida"], {
+    required_error: "Modalidad es requerida"
+  }),
+  turno: z.enum(["matutino", "vespertino", "nocturno", "mixto"], {
+    required_error: "Turno es requerido"
+  }),
+  fechaInicio: z.date({
+    required_error: "Fecha de inicio es requerida"
+  }),
 });
 
 export const insertPagoSchema = createInsertSchema(pagos).omit({

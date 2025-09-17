@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireRole } from "./auth";
-import { insertComunicacionSchema, updateComunicacionSchema, insertCampanaSchema, updateCampanaSchema, insertReporteSchema, insertFormularioPublicoSchema, insertDocumentoAdmisionSchema, insertEstudianteSchema, insertPagoSchema, insertFormularioAdmisionSchema } from "@shared/schema";
+import { insertComunicacionSchema, updateComunicacionSchema, insertCampanaSchema, updateCampanaSchema, insertReporteSchema, insertFormularioPublicoSchema, insertDocumentoAdmisionSchema, insertEstudianteSchema, insertPagoSchema, insertFormularioAdmisionSchema, updateDatosAcademicosSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Configurar autenticación (basado en blueprint:javascript_auth_all_persistance)
@@ -990,6 +990,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(estudiante);
     } catch (error) {
       console.error("Error getting student:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Obtener estudiante por ID de prospecto
+  app.get("/api/estudiantes/por-prospecto/:prospectoId", requireAuth, async (req, res) => {
+    try {
+      const { prospectoId } = req.params;
+      const estudiante = await storage.getEstudianteByProspecto(prospectoId);
+      
+      if (!estudiante) {
+        return res.status(404).json({ error: "Estudiante no encontrado para este prospecto" });
+      }
+      
+      res.json(estudiante);
+    } catch (error) {
+      console.error("Error getting student by prospect:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Actualizar datos académicos del estudiante
+  app.patch("/api/estudiantes/:id/datos-academicos", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Validar datos académicos con el schema
+      const parsedData = updateDatosAcademicosSchema.parse(req.body);
+      
+      // Verificar que el estudiante existe
+      const estudianteExistente = await storage.getEstudiante(id);
+      if (!estudianteExistente) {
+        return res.status(404).json({ error: "Estudiante no encontrado" });
+      }
+
+      // Actualizar datos académicos
+      const estudianteActualizado = await storage.updateEstudiante(id, {
+        programa: parsedData.programa,
+        modalidad: parsedData.modalidad,
+        turno: parsedData.turno,
+        fechaInicio: parsedData.fechaInicio,
+      });
+
+      res.json(estudianteActualizado);
+    } catch (error) {
+      if (error instanceof Error && 'issues' in error) {
+        // Error de validación de Zod
+        return res.status(400).json({ 
+          error: "Datos de validación incorrectos", 
+          details: (error as any).issues 
+        });
+      }
+      console.error("Error updating student academic data:", error);
       res.status(500).json({ error: "Error interno del servidor" });
     }
   });
