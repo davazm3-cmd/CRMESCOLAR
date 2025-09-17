@@ -3,12 +3,18 @@ import {
   type User, type InsertUser, type Prospecto, type InsertProspecto,
   type Comunicacion, type InsertComunicacion, type Campana, type InsertCampana
 } from "@shared/schema";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { eq, like, and, desc, count, sum, avg, sql } from "drizzle-orm";
+import session from "express-session";
+import connectPg from "connect-pg-simple";
 import bcrypt from "bcrypt";
+
+const PostgresSessionStore = connectPg(session);
 
 // Interfaz actualizada para todas las operaciones del CRM
 export interface IStorage {
+  // Session store
+  sessionStore: session.Store;
   // Usuarios
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -65,6 +71,14 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  public sessionStore: session.Store;
+
+  constructor() {
+    this.sessionStore = new PostgresSessionStore({ 
+      pool, 
+      createTableIfMissing: true 
+    });
+  }
   // Métodos de usuarios
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));

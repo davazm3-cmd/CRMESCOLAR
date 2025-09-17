@@ -20,6 +20,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { useState } from "react";
+import { useAuth } from "@/hooks/use-auth";
 
 const menuItems = [
   {
@@ -79,13 +80,46 @@ interface AppSidebarProps {
 
 export function AppSidebar({ activeSection = "dashboard", onSectionChange }: AppSidebarProps) {
   const [currentSection, setCurrentSection] = useState(activeSection);
+  const { user, isDirector, isGerente, isAsesor } = useAuth();
 
   const handleSectionClick = (section: string) => {
     const cleanSection = section.replace('#', '');
     setCurrentSection(cleanSection);
     onSectionChange?.(cleanSection);
-    console.log(`Navegando a sección: ${cleanSection}`);
   };
+
+  // Filtrar elementos del dashboard por rol
+  const getAvailableRoleItems = () => {
+    const availableItems = [];
+    
+    if (isDirector) {
+      availableItems.push({
+        title: "Vista Director",
+        url: "#director",
+        icon: GraduationCap,
+      });
+    }
+    
+    if (isGerente) {
+      availableItems.push({
+        title: "Vista Gerente",
+        url: "#gerente",
+        icon: FileText,
+      });
+    }
+    
+    if (isAsesor) {
+      availableItems.push({
+        title: "Vista Asesor",
+        url: "#asesor",
+        icon: BookOpen,
+      });
+    }
+    
+    return availableItems;
+  };
+
+  const availableRoleItems = getAvailableRoleItems();
 
   return (
     <Sidebar>
@@ -114,29 +148,32 @@ export function AppSidebar({ activeSection = "dashboard", onSectionChange }: App
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Dashboards por Rol</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {roleItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton 
-                    asChild
-                    isActive={currentSection === item.url.replace('#', '')}
-                  >
-                    <button 
-                      onClick={() => handleSectionClick(item.url)}
-                      data-testid={`button-nav-${item.url.replace('#', '')}`}
+        {/* Solo mostrar dashboards disponibles según el rol */}
+        {availableRoleItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Dashboards Disponibles</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {availableRoleItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton 
+                      asChild
+                      isActive={currentSection === item.url.replace('#', '')}
                     >
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </button>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                      <button 
+                        onClick={() => handleSectionClick(item.url)}
+                        data-testid={`button-nav-${item.url.replace('#', '')}`}
+                      >
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </button>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
     </Sidebar>
   );
