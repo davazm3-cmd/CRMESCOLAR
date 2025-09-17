@@ -1,0 +1,134 @@
+Tu tarea es crear un CRM especializado para instituciones educativas (desde K-12 hasta universidades). El sistema debe responder a las necesidades estratégicas de gestión de prospectos, admisiones, comunicación, análisis y optimización de recursos. La solución debe ser intuitiva, eficiente y diferenciada de los CRMs genéricos, con personalización para distintos roles y métricas claras de éxito.
+
+Consulta/Tarea
+Diseñar y generar la arquitectura funcional completa del CRM escolar, detallando:
+
+Módulos principales.
+
+Flujos de trabajo.
+
+Roles de usuario y sus tableros personalizados.
+
+Integración de comunicaciones y automatización.
+
+Criterios de calidad y métricas de éxito.
+
+Exclusiones que deben respetarse.
+
+Especificaciones
+
+Funciones principales:
+
+Gestión centralizada de prospectos.
+
+Automatización de tareas clave (recordatorios, cambios de estatus, correos).
+
+Integración de comunicaciones (llamadas, WhatsApp, correos, comunicación interna entre gerentes/directores/asesores).
+
+Analíticas y reportes actualizados cada 3 horas (prospectos, campañas, tasas de inscripción).
+
+Gestión de campañas (origen de prospectos, costo por inscrito, ROI).
+
+Ranking de asesores (citas atendidas, inscritos, conversión).
+
+Personalización modular (campos, flujos de trabajo, configuraciones).
+
+Gestión de becas y descuentos.
+
+Optimización del proceso de admisión (desde registro hasta inscripción).
+
+Roles y tableros personalizados:
+
+Rector/Director:
+
+Comportamiento mensual acumulado de datos vs inscritos → gráfico comparativo semanal.
+
+Comportamiento diario de inscritos nuevos → gráfico comparativo semanal.
+
+Análisis de orígenes de datos → gráfico comparativo semanal.
+
+Comparación mensual de inscritos de nuevo ingreso → gráfico comparativo entre asesores.
+
+Costo mensual de datos vs inversión de marketing → tabla.
+
+Gerentes de Admisión:
+
+Supervisión de actividades de asesores.
+
+Monitoreo de cumplimiento de metas.
+
+Reportes comparativos de desempeño.
+
+Asesores Educativos:
+
+Gestión y seguimiento de prospectos.
+
+Visualización de citas y tiempos de respuesta (ej. 2-3 semanas).
+
+Comunicación directa (llamadas, WhatsApp, correos).
+
+Acceso a indicadores de conversión.
+
+Características clave:
+
+Interfaz intuitiva y accesible para diferentes niveles de habilidad técnica.
+
+Tableros y visualizaciones adaptados a cada rol (tablas, gráficos comparativos).
+
+Actualización periódica y exportación de reportes.
+
+Diseño escalable y adaptable para evolución futura.
+
+Exclusiones obligatorias (NO incluir):
+
+Aplicación móvil nativa.
+
+Notificaciones personalizadas.
+
+Multiusuario por prospecto.
+
+Sistema de ventas o facturación.
+
+Branding y look & feel avanzado.
+
+Interacciones externas no definidas.
+
+Machine Learning & AI.
+
+Automatización completa del proceso de inscripción.
+
+Criterios de Calidad
+
+Usabilidad simple e intuitiva para todos los roles.
+
+Integración completa de comunicaciones dentro del CRM.
+
+Reportes estratégicos claros, comparativos y actualizados.
+
+Adaptabilidad modular según la institución.
+
+Cumplimiento estricto de exclusiones.
+
+Métricas de éxito: adopción por instituciones, mejora en tasas de conversión, eficiencia operativa y satisfacción del usuario.
+
+Cómo debe ser la respuesta
+
+Explicada en secciones claras (arquitectura, módulos, flujos, roles, dashboards, criterios de calidad).
+
+Nivel de detalle funcional suficiente para guiar el desarrollo.
+
+Incluir ejemplos de visualización (gráficos, tablas).
+
+Mantener un enfoque práctico, sin sobrecargar con complejidad técnica innecesaria.
+
+Verificación
+
+Confirmar que cada funcionalidad crítica está cubierta.
+
+Validar que las exclusiones se cumplan estrictamente.
+
+Revisar que cada rol tenga asignados tableros e informes adecuados.
+
+Comprobar que los criterios de calidad y métricas de éxito estén contemplados.
+
+Garantizar que la experiencia del usuario sea fluida, clara y atractiva.
