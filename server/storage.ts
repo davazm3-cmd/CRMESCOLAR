@@ -1,7 +1,13 @@
 import { 
   users, prospectos, comunicaciones, campanas, prospectosCampanas, reportes,
+  formulariosPublicos, documentosAdmision, estudiantes, pagos, formulariosAdmision,
   type User, type InsertUser, type Prospecto, type InsertProspecto,
-  type Comunicacion, type InsertComunicacion, type Campana, type InsertCampana
+  type Comunicacion, type InsertComunicacion, type Campana, type InsertCampana,
+  type FormularioPublico, type InsertFormularioPublico,
+  type DocumentoAdmision, type InsertDocumentoAdmision,
+  type Estudiante, type InsertEstudiante,
+  type Pago, type InsertPago,
+  type FormularioAdmision, type InsertFormularioAdmision
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, like, and, desc, count, sum, avg, sql } from "drizzle-orm";
@@ -134,6 +140,52 @@ export interface IStorage {
     proximasCitas: any[];
     metricsPersonales: any;
   }>;
+
+  // ====== MÉTODOS PARA NUEVAS FUNCIONALIDADES ======
+  
+  // Formularios Públicos
+  getFormularioPublico(id: string): Promise<FormularioPublico | undefined>;
+  getFormularioPublicoByEnlace(enlace: string): Promise<FormularioPublico | undefined>;
+  createFormularioPublico(formulario: InsertFormularioPublico): Promise<FormularioPublico>;
+  getFormulariosPublicos(activos?: boolean): Promise<FormularioPublico[]>;
+  updateFormularioPublico(id: string, formulario: Partial<InsertFormularioPublico>): Promise<FormularioPublico>;
+  deleteFormularioPublico(id: string): Promise<boolean>;
+  
+  // Documentos de Admisión
+  getDocumentoAdmision(id: string): Promise<DocumentoAdmision | undefined>;
+  createDocumentoAdmision(documento: InsertDocumentoAdmision): Promise<DocumentoAdmision>;
+  getDocumentosByProspecto(prospectoId: string): Promise<DocumentoAdmision[]>;
+  updateDocumentoAdmision(id: string, documento: Partial<InsertDocumentoAdmision>): Promise<DocumentoAdmision>;
+  deleteDocumentoAdmision(id: string): Promise<boolean>;
+  
+  // Estudiantes
+  getEstudiante(id: string): Promise<Estudiante | undefined>;
+  getEstudianteByProspecto(prospectoId: string): Promise<Estudiante | undefined>;
+  createEstudiante(estudiante: InsertEstudiante): Promise<Estudiante>;
+  getEstudiantes(estado?: string): Promise<Estudiante[]>;
+  updateEstudiante(id: string, estudiante: Partial<InsertEstudiante>): Promise<Estudiante>;
+  deleteEstudiante(id: string): Promise<boolean>;
+  
+  // Pagos
+  getPago(id: string): Promise<Pago | undefined>;
+  createPago(pago: InsertPago): Promise<Pago>;
+  getPagosByProspecto(prospectoId: string): Promise<Pago[]>;
+  getPagosByEstudiante(estudianteId: string): Promise<Pago[]>;
+  updatePago(id: string, pago: Partial<InsertPago>): Promise<Pago>;
+  deletePago(id: string): Promise<boolean>;
+  
+  // Formularios de Admisión
+  getFormularioAdmision(id: string): Promise<FormularioAdmision | undefined>;
+  getFormularioAdmisionByProspecto(prospectoId: string): Promise<FormularioAdmision | undefined>;
+  createFormularioAdmision(formulario: InsertFormularioAdmision): Promise<FormularioAdmision>;
+  updateFormularioAdmision(id: string, formulario: Partial<InsertFormularioAdmision>): Promise<FormularioAdmision>;
+  deleteFormularioAdmision(id: string): Promise<boolean>;
+  
+  // Métodos especiales para el flujo de admisión
+  generarEnlaceFormularioPublico(): Promise<string>;
+  procesarProspectoDesdeFormularioPublico(datos: any, enlaceFormulario: string): Promise<Prospecto>;
+  iniciarProcesoAdmision(prospectoId: string): Promise<FormularioAdmision>;
+  completarMatricula(prospectoId: string, pagoId: string): Promise<Estudiante>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1671,6 +1723,316 @@ export class DatabaseStorage implements IStorage {
         doc.moveDown(0.5);
       });
     }
+  }
+
+  // ====== IMPLEMENTACIONES PARA NUEVAS FUNCIONALIDADES ======
+  
+  // Formularios Públicos
+  async getFormularioPublico(id: string): Promise<FormularioPublico | undefined> {
+    const [formulario] = await db.select().from(formulariosPublicos).where(eq(formulariosPublicos.id, id));
+    return formulario || undefined;
+  }
+
+  async getFormularioPublicoByEnlace(enlace: string): Promise<FormularioPublico | undefined> {
+    const [formulario] = await db.select().from(formulariosPublicos).where(eq(formulariosPublicos.enlace, enlace));
+    return formulario || undefined;
+  }
+
+  async createFormularioPublico(insertFormulario: InsertFormularioPublico): Promise<FormularioPublico> {
+    const enlace = await this.generarEnlaceFormularioPublico();
+    const [formulario] = await db
+      .insert(formulariosPublicos)
+      .values({
+        ...insertFormulario,
+        enlace
+      })
+      .returning();
+    return formulario;
+  }
+
+  async getFormulariosPublicos(activos?: boolean): Promise<FormularioPublico[]> {
+    const query = db.select().from(formulariosPublicos);
+    return activos !== undefined 
+      ? await query.where(eq(formulariosPublicos.activo, activos))
+      : await query;
+  }
+
+  async updateFormularioPublico(id: string, formulario: Partial<InsertFormularioPublico>): Promise<FormularioPublico> {
+    const [updated] = await db
+      .update(formulariosPublicos)
+      .set(formulario)
+      .where(eq(formulariosPublicos.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteFormularioPublico(id: string): Promise<boolean> {
+    const result = await db.delete(formulariosPublicos).where(eq(formulariosPublicos.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // Documentos de Admisión
+  async getDocumentoAdmision(id: string): Promise<DocumentoAdmision | undefined> {
+    const [documento] = await db.select().from(documentosAdmision).where(eq(documentosAdmision.id, id));
+    return documento || undefined;
+  }
+
+  async createDocumentoAdmision(insertDocumento: InsertDocumentoAdmision): Promise<DocumentoAdmision> {
+    const [documento] = await db
+      .insert(documentosAdmision)
+      .values(insertDocumento)
+      .returning();
+    return documento;
+  }
+
+  async getDocumentosByProspecto(prospectoId: string): Promise<DocumentoAdmision[]> {
+    return await db
+      .select()
+      .from(documentosAdmision)
+      .where(eq(documentosAdmision.prospectoId, prospectoId))
+      .orderBy(desc(documentosAdmision.fechaCarga));
+  }
+
+  async updateDocumentoAdmision(id: string, documento: Partial<InsertDocumentoAdmision>): Promise<DocumentoAdmision> {
+    const [updated] = await db
+      .update(documentosAdmision)
+      .set(documento)
+      .where(eq(documentosAdmision.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteDocumentoAdmision(id: string): Promise<boolean> {
+    const result = await db.delete(documentosAdmision).where(eq(documentosAdmision.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // Estudiantes
+  async getEstudiante(id: string): Promise<Estudiante | undefined> {
+    const [estudiante] = await db.select().from(estudiantes).where(eq(estudiantes.id, id));
+    return estudiante || undefined;
+  }
+
+  async getEstudianteByProspecto(prospectoId: string): Promise<Estudiante | undefined> {
+    const [estudiante] = await db.select().from(estudiantes).where(eq(estudiantes.prospectoId, prospectoId));
+    return estudiante || undefined;
+  }
+
+  async createEstudiante(insertEstudiante: InsertEstudiante): Promise<Estudiante> {
+    const [estudiante] = await db
+      .insert(estudiantes)
+      .values(insertEstudiante)
+      .returning();
+    return estudiante;
+  }
+
+  async getEstudiantes(estado?: string): Promise<Estudiante[]> {
+    const query = db.select().from(estudiantes);
+    return estado
+      ? await query.where(eq(estudiantes.estado, estado))
+      : await query;
+  }
+
+  async updateEstudiante(id: string, estudiante: Partial<InsertEstudiante>): Promise<Estudiante> {
+    const [updated] = await db
+      .update(estudiantes)
+      .set(estudiante)
+      .where(eq(estudiantes.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteEstudiante(id: string): Promise<boolean> {
+    const result = await db.delete(estudiantes).where(eq(estudiantes.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // Pagos
+  async getPago(id: string): Promise<Pago | undefined> {
+    const [pago] = await db.select().from(pagos).where(eq(pagos.id, id));
+    return pago || undefined;
+  }
+
+  async createPago(insertPago: InsertPago): Promise<Pago> {
+    const [pago] = await db
+      .insert(pagos)
+      .values(insertPago)
+      .returning();
+    return pago;
+  }
+
+  async getPagosByProspecto(prospectoId: string): Promise<Pago[]> {
+    return await db
+      .select()
+      .from(pagos)
+      .where(eq(pagos.prospectoId, prospectoId))
+      .orderBy(desc(pagos.fechaPago));
+  }
+
+  async getPagosByEstudiante(estudianteId: string): Promise<Pago[]> {
+    return await db
+      .select()
+      .from(pagos)
+      .where(eq(pagos.estudianteId, estudianteId))
+      .orderBy(desc(pagos.fechaPago));
+  }
+
+  async updatePago(id: string, pago: Partial<InsertPago>): Promise<Pago> {
+    const [updated] = await db
+      .update(pagos)
+      .set(pago)
+      .where(eq(pagos.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deletePago(id: string): Promise<boolean> {
+    const result = await db.delete(pagos).where(eq(pagos.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // Formularios de Admisión
+  async getFormularioAdmision(id: string): Promise<FormularioAdmision | undefined> {
+    const [formulario] = await db.select().from(formulariosAdmision).where(eq(formulariosAdmision.id, id));
+    return formulario || undefined;
+  }
+
+  async getFormularioAdmisionByProspecto(prospectoId: string): Promise<FormularioAdmision | undefined> {
+    const [formulario] = await db.select().from(formulariosAdmision).where(eq(formulariosAdmision.prospectoId, prospectoId));
+    return formulario || undefined;
+  }
+
+  async createFormularioAdmision(insertFormulario: InsertFormularioAdmision): Promise<FormularioAdmision> {
+    const [formulario] = await db
+      .insert(formulariosAdmision)
+      .values(insertFormulario)
+      .returning();
+    return formulario;
+  }
+
+  async updateFormularioAdmision(id: string, formulario: Partial<InsertFormularioAdmision>): Promise<FormularioAdmision> {
+    const [updated] = await db
+      .update(formulariosAdmision)
+      .set(formulario)
+      .where(eq(formulariosAdmision.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteFormularioAdmision(id: string): Promise<boolean> {
+    const result = await db.delete(formulariosAdmision).where(eq(formulariosAdmision.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // Métodos especiales para el flujo de admisión
+  async generarEnlaceFormularioPublico(): Promise<string> {
+    const crypto = await import('crypto');
+    const randomId = crypto.randomBytes(16).toString('hex');
+    const timestamp = Date.now().toString(36);
+    return `form-${timestamp}-${randomId}`;
+  }
+
+  async procesarProspectoDesdeFormularioPublico(datos: any, enlaceFormulario: string): Promise<Prospecto> {
+    // Obtener el formulario público para verificar que existe y está activo
+    const formulario = await this.getFormularioPublicoByEnlace(enlaceFormulario);
+    if (!formulario || !formulario.activo) {
+      throw new Error('Formulario público no encontrado o inactivo');
+    }
+
+    // Crear el prospecto con los datos del formulario
+    const nuevoProspecto: InsertProspecto = {
+      nombre: datos.nombre,
+      telefono: datos.telefono,
+      email: datos.email,
+      nivelEducativo: formulario.nivelEducativo,
+      origen: 'formulario_publico',
+      estatus: 'nuevo',
+      prioridad: 'media',
+      notas: `Prospecto creado desde formulario público: ${formulario.nombre}`,
+      datosAdicionales: {
+        formularioPublicoId: formulario.id,
+        enlaceFormulario: enlaceFormulario,
+        datosExtra: datos.datosExtra || {}
+      }
+    };
+
+    return await this.createProspecto(nuevoProspecto);
+  }
+
+  async iniciarProcesoAdmision(prospectoId: string): Promise<FormularioAdmision> {
+    // Verificar que el prospecto existe
+    const prospecto = await this.getProspecto(prospectoId);
+    if (!prospecto) {
+      throw new Error('Prospecto no encontrado');
+    }
+
+    // Verificar si ya tiene un formulario de admisión
+    const formularioExistente = await this.getFormularioAdmisionByProspecto(prospectoId);
+    if (formularioExistente) {
+      return formularioExistente;
+    }
+
+    // Crear formulario de admisión inicial
+    const nuevoFormulario: InsertFormularioAdmision = {
+      prospectoId: prospectoId,
+      datosPersonales: {
+        nombre: prospecto.nombre,
+        email: prospecto.email,
+        telefono: prospecto.telefono
+      },
+      datosContacto: {},
+      estado: 'borrador'
+    };
+
+    const formulario = await this.createFormularioAdmision(nuevoFormulario);
+
+    // Actualizar el estatus del prospecto a 'documentos'
+    await this.updateProspecto(prospectoId, { estatus: 'documentos' });
+
+    return formulario;
+  }
+
+  async completarMatricula(prospectoId: string, pagoId: string): Promise<Estudiante> {
+    // Verificar que el prospecto existe
+    const prospecto = await this.getProspecto(prospectoId);
+    if (!prospecto) {
+      throw new Error('Prospecto no encontrado');
+    }
+
+    // Verificar que el pago existe y está completado
+    const pago = await this.getPago(pagoId);
+    if (!pago || pago.estado !== 'completado') {
+      throw new Error('Pago no encontrado o no completado');
+    }
+
+    // Verificar que ya no sea estudiante
+    const estudianteExistente = await this.getEstudianteByProspecto(prospectoId);
+    if (estudianteExistente) {
+      return estudianteExistente;
+    }
+
+    // Generar matrícula única
+    const timestamp = Date.now().toString().slice(-8);
+    const randomNum = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    const matricula = `EST-${timestamp}-${randomNum}`;
+
+    // Crear estudiante
+    const nuevoEstudiante: InsertEstudiante = {
+      prospectoId: prospectoId,
+      matricula: matricula,
+      nivelEducativo: prospecto.nivelEducativo as 'primaria' | 'secundaria' | 'preparatoria' | 'universidad',
+      programa: 'Programa General', // Esto debería venir del formulario de admisión
+      modalidad: 'presencial', // Esto debería venir del formulario de admisión
+      fechaInicio: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 días desde ahora
+      estado: 'activo'
+    };
+
+    const estudiante = await this.createEstudiante(nuevoEstudiante);
+
+    // Actualizar el estatus del prospecto a 'matriculado'
+    await this.updateProspecto(prospectoId, { estatus: 'matriculado' });
+
+    return estudiante;
   }
 }
 
