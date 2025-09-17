@@ -7,7 +7,8 @@ import {
   FileText,
   GraduationCap,
   Home,
-  Settings
+  Settings,
+  ExternalLink
 } from "lucide-react";
 import {
   Sidebar,
@@ -121,6 +122,23 @@ export function AppSidebar({ activeSection = "dashboard", onSectionChange }: App
 
   const availableRoleItems = getAvailableRoleItems();
 
+  // Elementos de administración solo para directores y gerentes
+  const getAdminItems = () => {
+    const adminItems = [];
+    
+    if (isDirector || isGerente) {
+      adminItems.push({
+        title: "Formularios Públicos",
+        url: "#formularios-publicos",
+        icon: ExternalLink,
+      });
+    }
+    
+    return adminItems;
+  };
+
+  const adminItems = getAdminItems();
+
   return (
     <Sidebar>
       <SidebarContent>
@@ -147,6 +165,33 @@ export function AppSidebar({ activeSection = "dashboard", onSectionChange }: App
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {/* Sección de administración solo para directores y gerentes */}
+        {adminItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Administración</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {adminItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton 
+                      asChild
+                      isActive={currentSection === item.url.replace('#', '')}
+                    >
+                      <button 
+                        onClick={() => handleSectionClick(item.url)}
+                        data-testid={`button-nav-${item.url.replace('#', '')}`}
+                      >
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </button>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         {/* Solo mostrar dashboards disponibles según el rol */}
         {availableRoleItems.length > 0 && (

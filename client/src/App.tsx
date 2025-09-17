@@ -13,11 +13,13 @@ import { ProspectManager } from "@/components/prospect-manager";
 import { CommunicationCenter } from "@/components/communication-center";
 import { CampaignManager } from "@/components/campaign-manager";
 import { ReportsCenter } from "@/components/reports-center";
+import FormulariosPublicosManager from "@/components/formularios-publicos-manager";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
 import AuthPage from "@/pages/auth-page";
+import FormularioPublicoPage from "@/pages/formulario-publico-page";
 import { useState } from "react";
 
 function WelcomeScreen() {
@@ -97,6 +99,8 @@ function Router() {
   
   return (
     <Switch>
+      {/* Ruta pública para formularios - NO requiere autenticación */}
+      <Route path="/form/:enlace" component={FormularioPublicoPage} />
       <ProtectedRoute path="/" component={MainApp} />
       <Route path="/auth" component={AuthPage} />
       <Route component={() => <div>Página no encontrada</div>} />
@@ -172,6 +176,12 @@ function MainApp() {
         return <CampaignManager />;
       case "reportes":
         return <ReportsCenter />;
+      case "formularios-publicos":
+        // Solo directores y gerentes pueden gestionar formularios públicos
+        if (!isDirector && !isGerente) {
+          return <AccessDenied requiredRole="Director o Gerente" />;
+        }
+        return <FormulariosPublicosManager />;
       case "configuracion":
         return (
           <div className="p-6">

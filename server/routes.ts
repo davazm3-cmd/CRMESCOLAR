@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requireRole } from "./auth";
-import { insertComunicacionSchema, updateComunicacionSchema, insertCampanaSchema, updateCampanaSchema, insertReporteSchema } from "@shared/schema";
+import { insertComunicacionSchema, updateComunicacionSchema, insertCampanaSchema, updateCampanaSchema, insertReporteSchema, insertFormularioPublicoSchema, insertDocumentoAdmisionSchema, insertEstudianteSchema, insertPagoSchema, insertFormularioAdmisionSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Configurar autenticación (basado en blueprint:javascript_auth_all_persistance)
@@ -808,6 +808,244 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(dashboard);
     } catch (error) {
       console.error("Error getting reports dashboard:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // ====== RUTAS PARA FORMULARIOS PÚBLICOS ======
+  
+  // Gestión de formularios públicos (solo directores y gerentes)
+  app.get("/api/formularios-publicos", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const activos = req.query.activos === 'true' ? true : req.query.activos === 'false' ? false : undefined;
+      const formularios = await storage.getFormulariosPublicos(activos);
+      res.json(formularios);
+    } catch (error) {
+      console.error("Error getting public forms:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  app.post("/api/formularios-publicos", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const parsedData = insertFormularioPublicoSchema.parse(req.body);
+      const formulario = await storage.createFormularioPublico(parsedData);
+      res.status(201).json(formulario);
+    } catch (error) {
+      console.error("Error creating public form:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  app.get("/api/formularios-publicos/:id", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const formulario = await storage.getFormularioPublico(id);
+      
+      if (!formulario) {
+        return res.status(404).json({ error: "Formulario público no encontrado" });
+      }
+      
+      res.json(formulario);
+    } catch (error) {
+      console.error("Error getting public form:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  app.put("/api/formularios-publicos/:id", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const parsedData = insertFormularioPublicoSchema.partial().parse(req.body);
+      const formulario = await storage.updateFormularioPublico(id, parsedData);
+      res.json(formulario);
+    } catch (error) {
+      console.error("Error updating public form:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  app.delete("/api/formularios-publicos/:id", requireRole(["director", "gerente"]), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const success = await storage.deleteFormularioPublico(id);
+      
+      if (!success) {
+        return res.status(404).json({ error: "Formulario público no encontrado" });
+      }
+      
+      res.json({ message: "Formulario público eliminado exitosamente" });
+    } catch (error) {
+      console.error("Error deleting public form:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Ruta pública para obtener formulario por enlace (NO requiere autenticación)
+  app.get("/api/public/form/:enlace", async (req, res) => {
+    try {
+      const { enlace } = req.params;
+      const formulario = await storage.getFormularioPublicoByEnlace(enlace);
+      
+      if (!formulario || !formulario.activo) {
+        return res.status(404).json({ error: "Formulario no encontrado o inactivo" });
+      }
+      
+      // Solo devolver información necesaria para el formulario público
+      const formularioPublico = {
+        id: formulario.id,
+        nombre: formulario.nombre,
+        descripcion: formulario.descripcion,
+        nivelEducativo: formulario.nivelEducativo,
+        configuracion: formulario.configuracion
+      };
+      
+      res.json(formularioPublico);
+    } catch (error) {
+      console.error("Error getting public form by link:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Ruta pública para enviar formulario (NO requiere autenticación)
+  app.post("/api/public/form/:enlace/submit", async (req, res) => {
+    try {
+      const { enlace } = req.params;
+      const { nombre, email, telefono, datosExtra } = req.body;
+      
+      if (!nombre || !email || !telefono) {
+        return res.status(400).json({ error: "Nombre, email y teléfono son requeridos" });
+      }
+      
+      // Verificar que el formulario existe y está activo
+      const formulario = await storage.getFormularioPublicoByEnlace(enlace);
+      if (!formulario || !formulario.activo) {
+        return res.status(404).json({ error: "Formulario no encontrado o inactivo" });
+      }
+      
+      // Crear prospecto desde formulario público
+      const prospecto = await storage.procesarProspectoDesdeFormularioPublico({
+        nombre,
+        email,
+        telefono,
+        datosExtra
+      }, enlace);
+      
+      res.status(201).json({ 
+        message: "Formulario enviado exitosamente",
+        prospectoId: prospecto.id
+      });
+    } catch (error) {
+      console.error("Error submitting public form:", error);
+      res.status(500).json({ error: "Error al procesar el formulario" });
+    }
+  });
+
+  // ====== RUTAS PARA DOCUMENTOS DE ADMISIÓN ======
+  
+  app.get("/api/prospectos/:prospectoId/documentos", requireAuth, async (req, res) => {
+    try {
+      const { prospectoId } = req.params;
+      const documentos = await storage.getDocumentosByProspecto(prospectoId);
+      res.json(documentos);
+    } catch (error) {
+      console.error("Error getting admission documents:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  app.post("/api/documentos-admision", requireAuth, async (req, res) => {
+    try {
+      const parsedData = insertDocumentoAdmisionSchema.parse(req.body);
+      const documento = await storage.createDocumentoAdmision(parsedData);
+      res.status(201).json(documento);
+    } catch (error) {
+      console.error("Error creating admission document:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // ====== RUTAS PARA ESTUDIANTES ======
+  
+  app.get("/api/estudiantes", requireAuth, async (req, res) => {
+    try {
+      const { estado } = req.query;
+      const estudiantes = await storage.getEstudiantes(estado as string);
+      res.json(estudiantes);
+    } catch (error) {
+      console.error("Error getting students:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  app.get("/api/estudiantes/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const estudiante = await storage.getEstudiante(id);
+      
+      if (!estudiante) {
+        return res.status(404).json({ error: "Estudiante no encontrado" });
+      }
+      
+      res.json(estudiante);
+    } catch (error) {
+      console.error("Error getting student:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // ====== RUTAS PARA PAGOS ======
+  
+  app.get("/api/prospectos/:prospectoId/pagos", requireAuth, async (req, res) => {
+    try {
+      const { prospectoId } = req.params;
+      const pagos = await storage.getPagosByProspecto(prospectoId);
+      res.json(pagos);
+    } catch (error) {
+      console.error("Error getting prospect payments:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  app.post("/api/pagos", requireAuth, async (req, res) => {
+    try {
+      const parsedData = insertPagoSchema.parse(req.body);
+      const pago = await storage.createPago(parsedData);
+      res.status(201).json(pago);
+    } catch (error) {
+      console.error("Error creating payment:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // ====== RUTAS PARA FLUJO DE ADMISIÓN ======
+  
+  // Iniciar proceso de admisión para un prospecto
+  app.post("/api/prospectos/:prospectoId/iniciar-admision", requireAuth, async (req, res) => {
+    try {
+      const { prospectoId } = req.params;
+      const formulario = await storage.iniciarProcesoAdmision(prospectoId);
+      res.status(201).json(formulario);
+    } catch (error) {
+      console.error("Error starting admission process:", error);
+      res.status(500).json({ error: "Error interno del servidor" });
+    }
+  });
+
+  // Completar matrícula tras pago exitoso
+  app.post("/api/prospectos/:prospectoId/completar-matricula", requireAuth, async (req, res) => {
+    try {
+      const { prospectoId } = req.params;
+      const { pagoId } = req.body;
+      
+      if (!pagoId) {
+        return res.status(400).json({ error: "ID de pago es requerido" });
+      }
+      
+      const estudiante = await storage.completarMatricula(prospectoId, pagoId);
+      res.status(201).json(estudiante);
+    } catch (error) {
+      console.error("Error completing enrollment:", error);
       res.status(500).json({ error: "Error interno del servidor" });
     }
   });
