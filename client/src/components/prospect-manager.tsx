@@ -16,9 +16,11 @@ import {
   LayoutGrid,
   GraduationCap,
   TrendingUp,
-  UserCheck
+  UserCheck,
+  FileCheck
 } from "lucide-react";
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { ProspectKanban } from "./prospect-kanban";
 
 //todo: remove mock data functionality
@@ -104,6 +106,7 @@ export function ProspectManager() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("Todos");
   const [selectedProspects, setSelectedProspects] = useState<string[]>([]);
+  const [, setLocation] = useLocation();
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
 
   const statusOptions = ["Todos", "Nuevo", "Primer Contacto", "Cita Agendada", "Documentos", "Admitido", "Matriculado"];
@@ -396,6 +399,18 @@ export function ProspectManager() {
                         <Mail className="h-4 w-4 mr-1" />
                         Email
                       </Button>
+                      {/* Botón para proceso de admisión - solo visible para etapas apropiadas */}
+                      {['cita_agendada', 'documentos', 'admitido', 'matriculado'].includes(prospect.estatus) && (
+                        <Button 
+                          variant="default" 
+                          size="sm"
+                          onClick={() => setLocation(`/proceso-admision/${prospect.id}`)}
+                          data-testid={`button-proceso-admision-${prospect.id}`}
+                        >
+                          <FileCheck className="h-4 w-4 mr-1" />
+                          Proceso Admisión
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </div>

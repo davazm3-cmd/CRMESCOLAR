@@ -20,6 +20,7 @@ import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
 import AuthPage from "@/pages/auth-page";
 import FormularioPublicoPage from "@/pages/formulario-publico-page";
+import ProcesoAdmisionPage from "@/pages/proceso-admision-page";
 import { useState } from "react";
 
 function WelcomeScreen() {
@@ -101,6 +102,8 @@ function Router() {
     <Switch>
       {/* Ruta pública para formularios - NO requiere autenticación */}
       <Route path="/form/:enlace" component={FormularioPublicoPage} />
+      {/* Ruta protegida para proceso de admisión */}
+      <ProtectedRoute path="/proceso-admision/:prospectoId" component={ProcesoAdmisionPage} />
       <ProtectedRoute path="/" component={MainApp} />
       <Route path="/auth" component={AuthPage} />
       <Route component={() => <div>Página no encontrada</div>} />
